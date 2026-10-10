@@ -65,7 +65,7 @@ namespace WhiteFox.Core.Game
     {
         private readonly GameSession game;
 
-        public readonly ContainerWindow Player = new ContainerWindow { Id = 0, Slots = new ItemStack[ContainerWindow.PlayerSlotCount], Title = "Inventario" };
+        public readonly ContainerWindow Player = new ContainerWindow { Id = 0, Slots = new ItemStack[ContainerWindow.PlayerSlotCount], Title = "Inventory" };
         /// <summary>Window opened by the server (chest, furnace, ...), or null.</summary>
         public ContainerWindow Open;
         /// <summary>Stack held by the mouse cursor.</summary>

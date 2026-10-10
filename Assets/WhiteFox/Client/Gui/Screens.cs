@@ -43,7 +43,7 @@ namespace WhiteFox.Client.Gui
                 if (text.Length > 0 && !text.Contains("Minecraft")) this.splashes.Add(text);
             }
             this.splashes.Add("Also try 6B6T!");
-            this.splashes.Add("Minosoft en Unity!");
+            this.splashes.Add("Minosoft in Unity!");
         }
 
         /// <param name="account">The selected Microsoft account, or null to join with the offline name.</param>
@@ -67,25 +67,25 @@ namespace WhiteFox.Client.Gui
             DrawSplash(gui, center + 100, top + 6);
 
             var y = top + 14;
-            gui.Text("Servidor", center - 100, y, GuiRenderer.Gray);
+            gui.Text("Server Address", center - 100, y, GuiRenderer.Gray);
             if (Address.Draw(gui, new Rect(center - 100, y + 10, 200, 20))) return Submit();
             if (account != null && account.IsOnline)
             {
-                gui.Text("Cuenta Microsoft", center - 100, y + 36, GuiRenderer.Gray);
+                gui.Text("Microsoft Account", center - 100, y + 36, GuiRenderer.Gray);
                 gui.Text(account.Name, center - 96, y + 52);
             }
             else
             {
-                gui.Text("Nombre (cuenta offline)", center - 100, y + 36, GuiRenderer.Gray);
+                gui.Text("Name (offline account)", center - 100, y + 36, GuiRenderer.Gray);
                 if (Username.Draw(gui, new Rect(center - 100, y + 46, 200, 20))) return Submit();
             }
 
             var action = Action.None;
-            if (gui.Button(new Rect(center - 100, y + 74, 200, 20), "Conectar")) action = Submit();
+            if (gui.Button(new Rect(center - 100, y + 74, 200, 20), "Join Server")) action = Submit();
             if (gui.Button(new Rect(center - 100, y + 98, 98, 20), pinging ? "..." : "Ping", !pinging)) Ping();
-            if (gui.Button(new Rect(center + 2, y + 98, 98, 20), "Cuentas...")) action = Action.Accounts;
-            if (gui.Button(new Rect(center - 100, y + 122, 98, 20), "Opciones...")) action = Action.Options;
-            if (gui.Button(new Rect(center + 2, y + 122, 98, 20), "Salir")) action = Action.Quit;
+            if (gui.Button(new Rect(center + 2, y + 98, 98, 20), "Accounts...")) action = Action.Accounts;
+            if (gui.Button(new Rect(center - 100, y + 122, 98, 20), "Options...")) action = Action.Options;
+            if (gui.Button(new Rect(center + 2, y + 122, 98, 20), "Quit Game")) action = Action.Quit;
 
             var info = message ?? pingResult;
             if (info != null)
@@ -100,7 +100,7 @@ namespace WhiteFox.Client.Gui
             }
 
             gui.Text("WhiteFox 2.0 (" + Protocol.VersionName + ")", 2, gui.Height - 10);
-            gui.TextRight("Basado en Minosoft. No afiliado a Mojang", gui.Width - 2, gui.Height - 10);
+            gui.TextRight("Based on Minosoft. Not affiliated with Mojang", gui.Width - 2, gui.Height - 10);
             if (action != Action.None) Save();
             return action;
         }
@@ -137,18 +137,18 @@ namespace WhiteFox.Client.Gui
         {
             pinging = true;
             pingFailed = false;
-            pingResult = "Haciendo ping...";
+            pingResult = "Pinging...";
             try
             {
                 MainAddress(AddressText, out var host, out var port);
                 var status = await ServerStatus.PingAsync(host, port);
-                pingResult = $"{status.Motd}\n{status.VersionName} - {status.OnlinePlayers}/{status.MaxPlayers} jugadores - {status.PingMilliseconds} ms" +
-                             (status.Compatible ? "" : "\nIncompatible: WhiteFox usa " + Protocol.VersionName);
+                pingResult = $"{status.Motd}\n{status.VersionName} - {status.OnlinePlayers}/{status.MaxPlayers} players - {status.PingMilliseconds} ms" +
+                             (status.Compatible ? "" : "\nIncompatible: WhiteFox uses " + Protocol.VersionName);
                 pingFailed = !status.Compatible;
             }
             catch (Exception exception)
             {
-                pingResult = "No se puede conectar: " + exception.Message;
+                pingResult = "Can not connect: " + exception.Message;
                 pingFailed = true;
             }
             pinging = false;
@@ -211,10 +211,10 @@ namespace WhiteFox.Client.Gui
             gui.Fill(new Rect(0, 0, gui.Width, gui.Height), new Color(0.06f, 0.06f, 0.06f, 0.6f));
             var center = Mathf.Floor(gui.Width / 2);
             var y = Mathf.Floor(gui.Height / 4 + 8);
-            gui.TextCentered("Menú del juego", center, y - 24);
-            if (gui.Button(new Rect(center - 102, y, 204, 20), "Volver al juego")) return Action.Resume;
-            if (gui.Button(new Rect(center - 102, y + 24, 204, 20), "Opciones...")) return Action.Options;
-            if (gui.Button(new Rect(center - 102, y + 72, 204, 20), remote ? "Desconectar" : "Salir")) return Action.Leave;
+            gui.TextCentered("Game Menu", center, y - 24);
+            if (gui.Button(new Rect(center - 102, y, 204, 20), "Back to Game")) return Action.Resume;
+            if (gui.Button(new Rect(center - 102, y + 24, 204, 20), "Options...")) return Action.Options;
+            if (gui.Button(new Rect(center - 102, y + 72, 204, 20), remote ? "Disconnect" : "Quit to Title")) return Action.Leave;
             return Action.None;
         }
     }
@@ -242,35 +242,35 @@ namespace WhiteFox.Client.Gui
             else MessageScreen.DirtBackground(gui);
             var center = Mathf.Floor(gui.Width / 2);
             var y = Mathf.Floor(gui.Height / 6);
-            gui.TextCentered("Opciones", center, y - 18);
+            gui.TextCentered("Options", center, y - 18);
             var action = Action.None;
 
-            var graphics = settings.Graphics == GraphicsMode.Modern ? "Modernos" : "Clásicos";
-            if (gui.Button(new Rect(center - 155, y, 150, 20), "Gráficos: " + graphics))
+            var graphics = settings.Graphics == GraphicsMode.Modern ? "Modern" : "Classic";
+            if (gui.Button(new Rect(center - 155, y, 150, 20), "Graphics: " + graphics))
             {
                 settings.Graphics = settings.Graphics == GraphicsMode.Modern ? GraphicsMode.Classic : GraphicsMode.Modern;
                 action = Action.GraphicsChanged;
             }
-            var distance = gui.Slider(new Rect(center + 5, y, 150, 20), "Distancia: " + settings.ViewDistance + " chunks", (settings.ViewDistance - 2) / 30f);
+            var distance = gui.Slider(new Rect(center + 5, y, 150, 20), "Render Distance: " + settings.ViewDistance + " chunks", (settings.ViewDistance - 2) / 30f);
             settings.ViewDistance = 2 + Mathf.RoundToInt(distance * 30);
 
-            var fov = gui.Slider(new Rect(center - 155, y + 24, 150, 20), "Campo de visión: " + Mathf.RoundToInt(settings.FieldOfView), (settings.FieldOfView - 30) / 80f);
+            var fov = gui.Slider(new Rect(center - 155, y + 24, 150, 20), "FOV: " + Mathf.RoundToInt(settings.FieldOfView), (settings.FieldOfView - 30) / 80f);
             settings.FieldOfView = 30 + Mathf.Round(fov * 80);
-            var sensitivity = gui.Slider(new Rect(center + 5, y + 24, 150, 20), "Sensibilidad: " + Mathf.RoundToInt(settings.MouseSensitivity / 0.15f * 100) + "%", settings.MouseSensitivity / 0.6f);
+            var sensitivity = gui.Slider(new Rect(center + 5, y + 24, 150, 20), "Sensitivity: " + Mathf.RoundToInt(settings.MouseSensitivity / 0.15f * 100) + "%", settings.MouseSensitivity / 0.6f);
             settings.MouseSensitivity = Mathf.Max(0.01f, sensitivity * 0.6f);
 
-            if (gui.Button(new Rect(center - 155, y + 48, 150, 20), "Controles...")) action = Action.Controls;
+            if (gui.Button(new Rect(center - 155, y + 48, 150, 20), "Controls...")) action = Action.Controls;
             // classic is Minosoft's look as it is (only the render distance changes); modern has its quality settings
-            if (gui.Button(new Rect(center + 5, y + 48, 150, 20), "Calidad gráfica...", settings.Graphics == GraphicsMode.Modern)) action = Action.Quality;
+            if (gui.Button(new Rect(center + 5, y + 48, 150, 20), "Graphics Quality...", settings.Graphics == GraphicsMode.Modern)) action = Action.Quality;
 
-            if (gui.Button(new Rect(center - 155, y + 72, 150, 20), "Música y sonidos...")) action = Action.Sounds;
-            if (gui.Button(new Rect(center + 5, y + 72, 150, 20), "Paquetes de recursos...")) action = Action.ResourcePacks;
+            if (gui.Button(new Rect(center - 155, y + 72, 150, 20), "Music & Sounds...")) action = Action.Sounds;
+            if (gui.Button(new Rect(center + 5, y + 72, 150, 20), "Resource Packs...")) action = Action.ResourcePacks;
 
             gui.TextCentered(settings.Graphics == GraphicsMode.Modern
-                ? "Modernos: sombras, luces reales, PBR (LabPBR), agua y cielo"
-                : "Clásicos: el aspecto original de Minosoft", center, y + 102, GuiRenderer.Gray);
+                ? "Modern: shadows, real lights, PBR (LabPBR), water and sky"
+                : "Classic: the original Minosoft look", center, y + 102, GuiRenderer.Gray);
 
-            if (gui.Button(new Rect(center - 100, gui.Height - 30, 200, 20), "Listo"))
+            if (gui.Button(new Rect(center - 100, gui.Height - 30, 200, 20), "Done"))
             {
                 settings.Save();
                 action = Action.Done;
@@ -291,7 +291,7 @@ namespace WhiteFox.Client.Gui
             if (overGame) gui.Fill(new Rect(0, 0, gui.Width, gui.Height), new Color(0.06f, 0.06f, 0.06f, 0.75f));
             else MessageScreen.DirtBackground(gui);
             var center = Mathf.Floor(gui.Width / 2);
-            gui.TextCentered("Controles", center, 8);
+            gui.TextCentered("Controls", center, 8);
 
             var current = Event.current;
             if (current.type == EventType.ScrollWheel)
@@ -320,14 +320,14 @@ namespace WhiteFox.Client.Gui
                     var label = Waiting == binding ? "> " + binding.DisplayName + " <" : binding.DisplayName;
                     if (conflict && Waiting != binding) label = "\u00a7c" + label;
                     if (gui.Button(new Rect(center + 2, y, 98, 20), label)) Waiting = binding;
-                    if (gui.Button(new Rect(center + 104, y, 50, 20), "Reiniciar", binding.Key != binding.Default)) binding.Key = binding.Default;
+                    if (gui.Button(new Rect(center + 104, y, 50, 20), "Reset", binding.Key != binding.Default)) binding.Key = binding.Default;
                 }
                 y += rowHeight;
             }
             GUI.EndGroup();
 
-            if (gui.Button(new Rect(center - 155, gui.Height - 28, 150, 20), "Reiniciar todo")) settings.ResetBindings();
-            if (gui.Button(new Rect(center + 5, gui.Height - 28, 150, 20), "Listo"))
+            if (gui.Button(new Rect(center - 155, gui.Height - 28, 150, 20), "Reset Keys")) settings.ResetBindings();
+            if (gui.Button(new Rect(center + 5, gui.Height - 28, 150, 20), "Done"))
             {
                 Waiting = null;
                 settings.Save();
@@ -356,7 +356,7 @@ namespace WhiteFox.Client.Gui
     {
         private static readonly string[] Names =
         {
-            "Volumen general", "Música", "Discos", "Clima", "Bloques", "Criaturas hostiles", "Criaturas pacíficas", "Jugadores", "Ambiente", "Voz",
+            "Master Volume", "Music", "Jukebox/Note Blocks", "Weather", "Blocks", "Hostile Creatures", "Friendly Creatures", "Players", "Ambient/Environment", "Voice/Speech",
         };
 
         /// <summary>Returns true when done.</summary>
@@ -366,7 +366,7 @@ namespace WhiteFox.Client.Gui
             else MessageScreen.DirtBackground(gui);
             var center = Mathf.Floor(gui.Width / 2);
             var y = Mathf.Floor(gui.Height / 6) - 12;
-            gui.TextCentered("Música y sonidos", center, y - 18);
+            gui.TextCentered("Music & Sound Options", center, y - 18);
             var master = gui.Slider(new Rect(center - 155, y, 310, 20), Names[0] + ": " + Percent(settings.Volumes[0]), settings.Volumes[0]);
             settings.Volumes[0] = master;
             for (var i = 1; i < Names.Length; i++)
@@ -376,7 +376,7 @@ namespace WhiteFox.Client.Gui
                 var rect = new Rect(center - 155 + column * 160, y + 24 + row * 24, 150, 20);
                 settings.Volumes[i] = gui.Slider(rect, Names[i] + ": " + Percent(settings.Volumes[i]), settings.Volumes[i]);
             }
-            if (gui.Button(new Rect(center - 100, gui.Height - 30, 200, 20), "Listo"))
+            if (gui.Button(new Rect(center - 100, gui.Height - 30, 200, 20), "Done"))
             {
                 settings.Save();
                 return true;
@@ -384,16 +384,16 @@ namespace WhiteFox.Client.Gui
             return false;
         }
 
-        private static string Percent(float value) => value <= 0 ? "No" : Mathf.RoundToInt(value * 100) + "%";
+        private static string Percent(float value) => value <= 0 ? "OFF" : Mathf.RoundToInt(value * 100) + "%";
     }
 
     public static class QualityScreen
     {
-        private static readonly string[] ShadowNames = { "No", "Bajas", "Medias", "Altas" };
-        private static readonly string[] LightNames = { "No", "Pocas (16)", "Normal (48)", "Muchas (96)" };
+        private static readonly string[] ShadowNames = { "Off", "Low", "Medium", "High" };
+        private static readonly string[] LightNames = { "Off", "Few (16)", "Normal (48)", "Many (96)" };
         private static readonly int[] LightShadowCounts = { 0, 2, 4, 8 };
-        private static readonly string[] ReliefNames = { "No", "Suave", "Fuerte" };
-        private static readonly string[] PresetNames = { "Bajo", "Medio", "Alto", "Ultra" };
+        private static readonly string[] ReliefNames = { "Off", "Soft", "Strong" };
+        private static readonly string[] PresetNames = { "Low", "Medium", "High", "Ultra" };
 
         /// <summary>Returns 0 nothing, 1 changed (apply), 2 done.</summary>
         public static int Draw(GuiRenderer gui, Settings settings, bool overGame)
@@ -402,7 +402,7 @@ namespace WhiteFox.Client.Gui
             else MessageScreen.DirtBackground(gui);
             var center = Mathf.Floor(gui.Width / 2);
             var y = Mathf.Floor(gui.Height / 6) - 8;
-            gui.TextCentered("Calidad gráfica (modernos)", center, y - 18);
+            gui.TextCentered("Graphics Quality (Modern)", center, y - 18);
             var changed = false;
 
             for (var preset = 0; preset < 4; preset++)
@@ -415,47 +415,47 @@ namespace WhiteFox.Client.Gui
             }
             y += 28;
 
-            if (gui.Button(new Rect(center - 155, y, 150, 20), "Sombras del sol: " + ShadowNames[settings.SunShadows]))
+            if (gui.Button(new Rect(center - 155, y, 150, 20), "Sun Shadows: " + ShadowNames[settings.SunShadows]))
             {
                 settings.SunShadows = (settings.SunShadows + 1) % 4;
                 changed = true;
             }
-            if (gui.Button(new Rect(center + 5, y, 150, 20), "Luces: " + LightNames[settings.BlockLights]))
+            if (gui.Button(new Rect(center + 5, y, 150, 20), "Lights: " + LightNames[settings.BlockLights]))
             {
                 settings.BlockLights = (settings.BlockLights + 1) % 4;
                 changed = true;
             }
             y += 24;
-            if (gui.Button(new Rect(center - 155, y, 150, 20), "Sombras de luces: " + settings.BlockLightShadows, settings.BlockLights > 0))
+            if (gui.Button(new Rect(center - 155, y, 150, 20), "Light Shadows: " + settings.BlockLightShadows, settings.BlockLights > 0))
             {
                 var index = System.Array.IndexOf(LightShadowCounts, settings.BlockLightShadows);
                 settings.BlockLightShadows = LightShadowCounts[(index + 1) % LightShadowCounts.Length];
                 changed = true;
             }
-            if (gui.Button(new Rect(center + 5, y, 150, 20), "Relieve: " + ReliefNames[settings.Relief]))
+            if (gui.Button(new Rect(center + 5, y, 150, 20), "Relief: " + ReliefNames[settings.Relief]))
             {
                 settings.Relief = (settings.Relief + 1) % 3;
                 changed = true;
             }
             y += 24;
-            if (gui.Button(new Rect(center - 155, y, 150, 20), "Agua: " + (settings.RealisticWater ? "Realista" : "Simple")))
+            if (gui.Button(new Rect(center - 155, y, 150, 20), "Water: " + (settings.RealisticWater ? "Realistic" : "Simple")))
             {
                 settings.RealisticWater = !settings.RealisticWater;
                 changed = true;
             }
-            if (gui.Button(new Rect(center + 5, y, 150, 20), "Bloom: " + (settings.Bloom ? "Sí" : "No"), settings.PostProcessing))
+            if (gui.Button(new Rect(center + 5, y, 150, 20), "Bloom: " + (settings.Bloom ? "ON" : "OFF"), settings.PostProcessing))
             {
                 settings.Bloom = !settings.Bloom;
                 changed = true;
             }
             y += 24;
-            if (gui.Button(new Rect(center - 155, y, 150, 20), "Postprocesado: " + (settings.PostProcessing ? "Sí" : "No")))
+            if (gui.Button(new Rect(center - 155, y, 150, 20), "Post-processing: " + (settings.PostProcessing ? "ON" : "OFF")))
             {
                 settings.PostProcessing = !settings.PostProcessing;
                 changed = true;
             }
 
-            if (gui.Button(new Rect(center - 100, gui.Height - 30, 200, 20), "Listo"))
+            if (gui.Button(new Rect(center - 100, gui.Height - 30, 200, 20), "Done"))
             {
                 settings.Save();
                 return 2;
@@ -475,16 +475,16 @@ namespace WhiteFox.Client.Gui
         {
             gui.Fill(new Rect(0, 0, gui.Width, gui.Height), new Color(0.31f, 0, 0, 0.5f));
             var center = Mathf.Floor(gui.Width / 2);
-            gui.TextScaled("¡Has muerto!", center, 30, 2, Color.white);
+            gui.TextScaled("You Died!", center, 30, 2, Color.white);
             var y = 85f;
             foreach (var line in gui.Wrap(message ?? "", 300))
             {
                 gui.TextCentered(line, center, y);
                 y += GuiFont.LineHeight + 1;
             }
-            gui.TextCentered("Puntuación: §e" + score, center, 100);
-            if (gui.Button(new Rect(center - 100, gui.Height / 4 + 72, 200, 20), "Reaparecer")) return 1;
-            if (gui.Button(new Rect(center - 100, gui.Height / 4 + 96, 200, 20), "Menú principal")) return 2;
+            gui.TextCentered("Score: §e" + score, center, 100);
+            if (gui.Button(new Rect(center - 100, gui.Height / 4 + 72, 200, 20), "Respawn")) return 1;
+            if (gui.Button(new Rect(center - 100, gui.Height / 4 + 96, 200, 20), "Title Screen")) return 2;
             return 0;
         }
     }

@@ -147,8 +147,8 @@ namespace WhiteFox.Client.Gui
                 beaconPrimary = window.Properties[1] - 1;
                 beaconSecondary = window.Properties[2] - 1;
             }
-            gui.TextCentered("Poder principal", panel.x + 62, panel.y + 10, new Color32(0xE0, 0xE0, 0xE0, 0xFF), false);
-            gui.TextCentered("Poder secundario", panel.x + 169, panel.y + 10, new Color32(0xE0, 0xE0, 0xE0, 0xFF), false);
+            gui.TextCentered("Primary Power", panel.x + 62, panel.y + 10, new Color32(0xE0, 0xE0, 0xE0, 0xFF), false);
+            gui.TextCentered("Secondary Power", panel.x + 169, panel.y + 10, new Color32(0xE0, 0xE0, 0xE0, 0xFF), false);
             for (var tier = 0; tier < 4; tier++)
             {
                 var effects = BeaconEffects[tier];
@@ -243,15 +243,15 @@ namespace WhiteFox.Client.Gui
             }
             if (pages.Count == 0) pages.Add("");
             var page = Mathf.Clamp(window.Properties[0], 0, pages.Count - 1);
-            gui.TextRight("Página " + (page + 1) + " de " + pages.Count, x + 192 - 44, y + 18, Color.black, false);
+            gui.TextRight("Page " + (page + 1) + " of " + pages.Count, x + 192 - 44, y + 18, Color.black, false);
             var lines = gui.Wrap(pages[page], 114);
             for (var i = 0; i < lines.Length && i < 14; i++) gui.Text(lines[i], x + 36, y + 32 + i * 9, Color.black, false);
             if (page < pages.Count - 1 && Pressed(new Rect(x + 116, y + 159, 23, 13))) session.Server?.SendContainerButton(window.Id, 2);
             if (page > 0 && Pressed(new Rect(x + 43, y + 159, 23, 13))) session.Server?.SendContainerButton(window.Id, 1);
             if (page < pages.Count - 1) gui.Sprite("widget/page_forward", new Rect(x + 116, y + 159, 23, 13));
             if (page > 0) gui.Sprite("widget/page_backward", new Rect(x + 43, y + 159, 23, 13));
-            if (gui.Button(new Rect(gui.Width / 2 - 100, 196, 98, 20), "Listo")) session.Inventory.Close();
-            if (gui.Button(new Rect(gui.Width / 2 + 2, 196, 98, 20), "Tomar libro")) session.Server?.SendContainerButton(window.Id, 3);
+            if (gui.Button(new Rect(gui.Width / 2 - 100, 196, 98, 20), "Done")) session.Inventory.Close();
+            if (gui.Button(new Rect(gui.Width / 2 + 2, 196, 98, 20), "Take Book")) session.Server?.SendContainerButton(window.Id, 3);
             return new Rect(x, y, 192, 216);
         }
 
@@ -272,7 +272,7 @@ namespace WhiteFox.Client.Gui
             bookRect = book;
             Region("assets/minecraft/textures/gui/recipe_book.png", new Rect(1, 1, 147, 166), book);
             recipeSearch.Draw(gui, new Rect(book.x + 25, book.y + 14, 81, 11), false);
-            if (string.IsNullOrEmpty(recipeSearch.Text) && !recipeSearch.Focused) gui.Text("Buscar...", book.x + 26, book.y + 15, GuiRenderer.Gray, false);
+            if (string.IsNullOrEmpty(recipeSearch.Text) && !recipeSearch.Focused) gui.Text("Search...", book.x + 26, book.y + 15, GuiRenderer.Gray, false);
 
             var available = new List<ItemStack>(session.Inventory.Player.Slots);
             for (var i = 0; i < window.ContainerSlots && i < window.Slots.Length; i++) available.Add(window.Slots[i]);

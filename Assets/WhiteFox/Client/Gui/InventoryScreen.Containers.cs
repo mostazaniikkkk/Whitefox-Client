@@ -56,7 +56,7 @@ namespace WhiteFox.Client.Gui
             Region(Container + texture + ".png", new Rect(0, 0, 176, height), panel);
             if (centeredTitle) gui.TextCentered(window.Title, panel.x + 88, panel.y + 6, Label, false);
             else gui.Text(window.Title, panel.x + 8, panel.y + 6, Label, false);
-            gui.Text("Inventario", panel.x + 8, panel.y + height - 94, Label, false);
+            gui.Text("Inventory", panel.x + 8, panel.y + height - 94, Label, false);
             return panel;
         }
 
@@ -85,7 +85,7 @@ namespace WhiteFox.Client.Gui
             var panel = Centered(176, 166);
             Region(Container + "crafting_table.png", new Rect(0, 0, 176, 166), panel);
             gui.Text(window.Title, panel.x + 29, panel.y + 6, Label, false);
-            gui.Text("Inventario", panel.x + 8, panel.y + 72, Label, false);
+            gui.Text("Inventory", panel.x + 8, panel.y + 72, Label, false);
             Slot(window, 0, panel, 124, 35);
             for (var i = 0; i < 9; i++) Slot(window, 1 + i, panel, 30 + i % 3 * 18, 17 + i / 3 * 18);
             PlayerSlots(window, panel, 84);
@@ -173,7 +173,7 @@ namespace WhiteFox.Client.Gui
             {
                 var creative = session.Player.Gamemode == Core.Physics.Gamemode.Creative;
                 var color = cost >= 40 && !creative ? GuiRenderer.Red : creative || session.ExperienceLevel >= cost ? new Color32(0x80, 0xFF, 0x20, 0xFF) : (Color)GuiRenderer.Red;
-                var text = cost >= 40 && !creative ? "¡Demasiado caro!" : "Coste: " + cost;
+                var text = cost >= 40 && !creative ? "Too Expensive!" : "Enchantment Cost: " + cost;
                 gui.Fill(new Rect(panel.x + 176 - 8 - gui.Font.Width(text) - 2, panel.y + 67, gui.Font.Width(text) + 4, 12), new Color(0, 0, 0, 0.3f));
                 gui.TextRight(text, panel.x + 176 - 8, panel.y + 69, color);
             }
@@ -259,8 +259,8 @@ namespace WhiteFox.Client.Gui
                 GUI.DrawTextureWithTexCoords(panel, texture.Texture, new Rect(0, 1 - 166 / h, 276 / w, 166 / h));
             }
             gui.TextCentered(window.Title, panel.x + 49 + 188 / 2f, panel.y + 6, Label, false);
-            gui.Text("Inventario", panel.x + 108, panel.y + 72, Label, false);
-            gui.Text("Comercios", panel.x + 5 + (88 - gui.Font.Width("Comercios")) / 2, panel.y + 6, Label, false);
+            gui.Text("Inventory", panel.x + 108, panel.y + 72, Label, false);
+            gui.Text("Trades", panel.x + 5 + (88 - gui.Font.Width("Trades")) / 2, panel.y + 6, Label, false);
 
             var offers = window.Offers;
             if (offers != null)

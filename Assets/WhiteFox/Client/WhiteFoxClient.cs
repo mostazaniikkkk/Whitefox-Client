@@ -204,10 +204,10 @@ namespace WhiteFox.Client
             {
                 if (string.IsNullOrWhiteSpace(Settings.MicrosoftClientId))
                 {
-                    disconnectMessage = "Falta microsoft.client_id en " + Settings.ConfigPath;
+                    disconnectMessage = "microsoft.client_id is missing in " + Settings.ConfigPath;
                     return;
                 }
-                loginMessage = "Iniciando sesión como " + account.Name + "...";
+                loginMessage = "Signing in as " + account.Name + "...";
                 try
                 {
                     await new MicrosoftAuth(Settings.MicrosoftClientId.Trim()).RefreshAsync(account);
@@ -216,7 +216,7 @@ namespace WhiteFox.Client
                 {
                     loginMessage = null;
                     accounts.Save();
-                    disconnectMessage = exception is AuthException ? exception.Message : "No se pudo iniciar sesión: " + exception.Message;
+                    disconnectMessage = exception is AuthException ? exception.Message : "Could not sign in: " + exception.Message;
                     return;
                 }
                 loginMessage = null;
@@ -232,7 +232,7 @@ namespace WhiteFox.Client
             }
             catch (Exception exception)
             {
-                if (Session == session) StopSession("No se puede conectar a " + address + ": " + exception.Message);
+                if (Session == session) StopSession("Can not connect to " + address + ": " + exception.Message);
             }
         }
 
@@ -807,7 +807,7 @@ namespace WhiteFox.Client
             gui.Begin();
             if (reloading)
             {
-                MessageScreen.Draw(gui, "Recargando recursos", (reloadStatus ?? "") + "...", null);
+                MessageScreen.Draw(gui, "Reloading resources", (reloadStatus ?? "") + "...", null);
                 return;
             }
             if (packOffers.Count > 0)
@@ -825,12 +825,12 @@ namespace WhiteFox.Client
             {
                 if (disconnectMessage != null)
                 {
-                    if (MessageScreen.Draw(gui, "Desconectado", disconnectMessage, "Volver al menú")) disconnectMessage = null;
+                    if (MessageScreen.Draw(gui, "Disconnected", disconnectMessage, "Back to Title Screen")) disconnectMessage = null;
                     return;
                 }
                 if (loginMessage != null)
                 {
-                    MessageScreen.Draw(gui, "Cuenta Microsoft", loginMessage, null);
+                    MessageScreen.Draw(gui, "Microsoft Account", loginMessage, null);
                     return;
                 }
                 switch (title.Draw(gui, null, MicrosoftAccount))
@@ -853,9 +853,9 @@ namespace WhiteFox.Client
 
             if (!Session.Spawned)
             {
-                var text = (Session.Server?.Status ?? "Cargando") + "...";
+                var text = (Session.Server?.Status ?? "Loading") + "...";
                 if (Session.World.ChunkCount > 0) text += "\n" + Session.World.ChunkCount + " chunks";
-                if (MessageScreen.Draw(gui, Session.IsRemote ? "Conectando al servidor" : "Cargando mundo", text, "Cancelar")) StopSession(null);
+                if (MessageScreen.Draw(gui, Session.IsRemote ? "Connecting to the server" : "Loading world", text, "Cancel")) StopSession(null);
                 return;
             }
 

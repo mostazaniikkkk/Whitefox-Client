@@ -82,7 +82,7 @@ namespace WhiteFox.Client.Gui
         {
             gui.Fill(new Rect(0, 0, gui.Width, gui.Height), new Color(0.06f, 0.06f, 0.06f, 0.75f));
             var center = Mathf.Floor(gui.Width / 2);
-            gui.TextCentered("Editar el texto del cartel", center, 40);
+            gui.TextCentered("Edit Sign Message", center, 40);
 
             // the board (vanilla draws the sign model, here its texture area)
             var board = new Rect(center - 96, 70, 192, 96);
@@ -116,7 +116,7 @@ namespace WhiteFox.Client.Gui
                 if (i == signLine && (int)(Time.unscaledTime * 2) % 2 == 0) text += "_";
                 gui.TextScaled(text, center, y, 1.5f, Color.black);
             }
-            if (gui.Button(new Rect(center - 100, gui.Height / 4 * 3 + 10, 200, 20), "Listo")) FinishSign(session);
+            if (gui.Button(new Rect(center - 100, gui.Height / 4 * 3 + 10, 200, 20), "Done")) FinishSign(session);
         }
 
         private void FinishSign(GameSession session)
@@ -168,7 +168,7 @@ namespace WhiteFox.Client.Gui
                 current.Use();
             }
 
-            var pageLabel = "Página " + (page + 1) + " de " + pages.Count;
+            var pageLabel = "Page " + (page + 1) + " of " + pages.Count;
             gui.TextRight(pageLabel, x + 192 - 44, y + 18, Color.black, false);
             var lines = gui.Wrap(pages[page], PageWidth);
             for (var i = 0; i < lines.Length && i < PageLines; i++) gui.Text(lines[i], x + 36, y + 32 + i * 9, Color.black, false);
@@ -192,10 +192,10 @@ namespace WhiteFox.Client.Gui
 
             if (editing)
             {
-                if (gui.Button(new Rect(gui.Width / 2 - 100, 196, 98, 20), "Firmar")) signing = true;
-                if (gui.Button(new Rect(gui.Width / 2 + 2, 196, 98, 20), "Listo")) CloseBook(session, null);
+                if (gui.Button(new Rect(gui.Width / 2 - 100, 196, 98, 20), "Sign")) signing = true;
+                if (gui.Button(new Rect(gui.Width / 2 + 2, 196, 98, 20), "Done")) CloseBook(session, null);
             }
-            else if (gui.Button(new Rect(gui.Width / 2 - 100, 196, 200, 20), "Listo"))
+            else if (gui.Button(new Rect(gui.Width / 2 - 100, 196, 200, 20), "Done"))
             {
                 CloseBook(session, null);
             }
@@ -216,13 +216,13 @@ namespace WhiteFox.Client.Gui
                 else if (current.character >= ' ' && current.character != '§' && title.Length < 32) title += current.character;
                 current.Use();
             }
-            gui.TextCentered("Escribe el título:", x + 96, y + 34, Color.black, false);
+            gui.TextCentered("Enter Book Title:", x + 96, y + 34, Color.black, false);
             gui.TextCentered(title + ((int)(Time.unscaledTime * 2) % 2 == 0 ? "_" : ""), x + 96, y + 50, Color.black, false);
-            gui.TextCentered("de " + (session.Server?.Username ?? "?"), x + 96, y + 60, GuiRenderer.DarkGray, false);
-            gui.TextCentered("Una vez firmado, el libro", x + 96, y + 82, Color.black, false);
-            gui.TextCentered("ya no se podrá editar.", x + 96, y + 91, Color.black, false);
-            if (gui.Button(new Rect(gui.Width / 2 - 100, 196, 98, 20), "Firmar y cerrar", title.Trim().Length > 0)) CloseBook(session, title.Trim());
-            if (gui.Button(new Rect(gui.Width / 2 + 2, 196, 98, 20), "Cancelar")) signing = false;
+            gui.TextCentered("by " + (session.Server?.Username ?? "?"), x + 96, y + 60, GuiRenderer.DarkGray, false);
+            gui.TextCentered("Note! When you sign the book,", x + 96, y + 82, Color.black, false);
+            gui.TextCentered("it will no longer be editable.", x + 96, y + 91, Color.black, false);
+            if (gui.Button(new Rect(gui.Width / 2 - 100, 196, 98, 20), "Sign and Close", title.Trim().Length > 0)) CloseBook(session, title.Trim());
+            if (gui.Button(new Rect(gui.Width / 2 + 2, 196, 98, 20), "Cancel")) signing = false;
         }
 
         private void CloseBook(GameSession session, string signTitle)

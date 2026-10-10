@@ -82,7 +82,7 @@ namespace WhiteFox.Client
                 return;
             }
             reloading = true;
-            reloadStatus = "Preparando";
+            reloadStatus = "Preparing";
             var ok = true;
             try
             {
@@ -167,16 +167,16 @@ namespace WhiteFox.Client
             if (overGame) gui.Fill(new Rect(0, 0, gui.Width, gui.Height), new Color(0.06f, 0.06f, 0.06f, 0.75f));
             else MessageScreen.DirtBackground(gui);
             var center = Mathf.Floor(gui.Width / 2);
-            gui.TextCentered("Paquetes de recursos", center, 8);
-            gui.TextCentered("Arriba tiene prioridad. Clic para mover de una lista a la otra.", center, 20, GuiRenderer.Gray);
+            gui.TextCentered("Select Resource Packs", center, 8);
+            gui.TextCentered("The top pack wins. Click a pack to move it to the other list.", center, 20, GuiRenderer.Gray);
 
             var available = AvailablePacks();
             available.RemoveAll(packSelection.Contains);
             packSelection.RemoveAll(name => !File.Exists(Path.Combine(PacksDirectory, name)) && !Directory.Exists(Path.Combine(PacksDirectory, name)));
 
             const float top = 44;
-            gui.TextCentered("Disponibles", center - 80, top - 10, GuiRenderer.Yellow);
-            gui.TextCentered("Seleccionados", center + 80, top - 10, GuiRenderer.Yellow);
+            gui.TextCentered("Available", center - 80, top - 10, GuiRenderer.Yellow);
+            gui.TextCentered("Selected", center + 80, top - 10, GuiRenderer.Yellow);
             var rows = Mathf.Max(1, Mathf.FloorToInt((gui.Height - top - 64) / 22));
             for (var i = 0; i < available.Count && i < rows; i++)
             {
@@ -204,20 +204,20 @@ namespace WhiteFox.Client
             }
             if (available.Count == 0 && packSelection.Count == 0)
             {
-                gui.TextCentered("No hay paquetes: copia .zip o carpetas en la carpeta de paquetes.", center, top + 10, GuiRenderer.Gray);
+                gui.TextCentered("No packs: copy zip files or folders into the resource pack folder.", center, top + 10, GuiRenderer.Gray);
             }
 
-            var serverModes = new[] { "Preguntar", "Sí", "No" };
-            if (gui.Button(new Rect(center - 155, gui.Height - 54, 310, 20), "Paquetes del servidor: " + serverModes[Mathf.Clamp(Settings.ServerPacks, 0, 2)]))
+            var serverModes = new[] { "Prompt", "Enabled", "Disabled" };
+            if (gui.Button(new Rect(center - 155, gui.Height - 54, 310, 20), "Server Resource Packs: " + serverModes[Mathf.Clamp(Settings.ServerPacks, 0, 2)]))
             {
                 Settings.ServerPacks = (Settings.ServerPacks + 1) % 3;
             }
-            if (gui.Button(new Rect(center - 155, gui.Height - 30, 150, 20), "Abrir carpeta"))
+            if (gui.Button(new Rect(center - 155, gui.Height - 30, 150, 20), "Open Pack Folder"))
             {
                 Directory.CreateDirectory(PacksDirectory);
                 Application.OpenURL(new Uri(PacksDirectory).AbsoluteUri);
             }
-            if (gui.Button(new Rect(center + 5, gui.Height - 30, 150, 20), "Listo"))
+            if (gui.Button(new Rect(center + 5, gui.Height - 30, 150, 20), "Done"))
             {
                 var previous = Settings.ResourcePacks ?? AvailablePacks();
                 var changed = previous.Count != packSelection.Count;
@@ -249,22 +249,22 @@ namespace WhiteFox.Client
         {
             var offer = packOffers.Peek();
             var text = offer.Forced
-                ? "Este servidor requiere un paquete de recursos personalizado."
-                : "Este servidor recomienda usar un paquete de recursos personalizado.";
+                ? "This server requires the use of a custom resource pack."
+                : "This server recommends the use of a custom resource pack.";
             if (!string.IsNullOrEmpty(offer.Prompt)) text += "\n" + LegacyFormatting.Strip(offer.Prompt);
-            MessageScreen.Draw(gui, "Paquete de recursos del servidor", text, null);
+            MessageScreen.Draw(gui, "Server Resource Pack", text, null);
             var center = Mathf.Floor(gui.Width / 2);
             var y = Mathf.Floor(gui.Height / 2 + 40);
-            if (gui.Button(new Rect(center - 155, y, 150, 20), "Sí"))
+            if (gui.Button(new Rect(center - 155, y, 150, 20), "Yes"))
             {
                 packOffers.Dequeue();
                 AcceptServerPack(offer);
             }
-            else if (gui.Button(new Rect(center + 5, y, 150, 20), offer.Forced ? "No (desconectar)" : "No"))
+            else if (gui.Button(new Rect(center + 5, y, 150, 20), offer.Forced ? "No (disconnect)" : "No"))
             {
                 packOffers.Dequeue();
                 Session?.Server?.SendResourcePackStatus(offer.Id, 1);
-                if (offer.Forced) StopSession("Has rechazado el paquete de recursos obligatorio del servidor.");
+                if (offer.Forced) StopSession("You declined the required resource pack of the server.");
             }
         }
 

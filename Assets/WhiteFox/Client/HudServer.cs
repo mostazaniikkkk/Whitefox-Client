@@ -272,20 +272,20 @@ namespace WhiteFox.Client
             var center = Mathf.Floor(gui.Width / 2);
             var box = new Rect(center - 160, gui.Height / 2 - 45, 320, 90);
             gui.Fill(box, new Color(0, 0, 0, 0.85f));
-            gui.TextCentered("¿Abrir este enlace?", center, box.y + 8, GuiRenderer.Yellow);
+            gui.TextCentered("Open this link?", center, box.y + 8, GuiRenderer.Yellow);
             gui.TextCentered(pendingUrl.Length > 52 ? pendingUrl.Substring(0, 51) + "…" : pendingUrl, center, box.y + 24, GuiRenderer.Gray);
-            gui.TextCentered("Nunca abras enlaces de gente en la que no confías.", center, box.y + 38, GuiRenderer.Red);
-            if (gui.Button(new Rect(center - 155, box.y + 60, 100, 20), "Abrir"))
+            gui.TextCentered("Never open links from people you don't trust!", center, box.y + 38, GuiRenderer.Red);
+            if (gui.Button(new Rect(center - 155, box.y + 60, 100, 20), "Open"))
             {
                 Application.OpenURL(pendingUrl);
                 pendingUrl = null;
             }
-            else if (gui.Button(new Rect(center - 50, box.y + 60, 100, 20), "Copiar"))
+            else if (gui.Button(new Rect(center - 50, box.y + 60, 100, 20), "Copy"))
             {
                 GUIUtility.systemCopyBuffer = pendingUrl;
                 pendingUrl = null;
             }
-            else if (gui.Button(new Rect(center + 55, box.y + 60, 100, 20), "Cancelar"))
+            else if (gui.Button(new Rect(center + 55, box.y + 60, 100, 20), "Cancel"))
             {
                 pendingUrl = null;
             }

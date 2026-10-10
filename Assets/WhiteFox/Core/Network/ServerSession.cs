@@ -215,7 +215,7 @@ namespace WhiteFox.Core.Network
             var verifyToken = buffer.ReadByteArray();
             if (Account == null || !Account.IsOnline)
             {
-                connection.Close("Este servidor está en modo online: hace falta una cuenta Microsoft con Minecraft (Opciones → Cuentas).");
+                connection.Close("This server is in online mode: a Microsoft account with Minecraft is needed (title screen → Accounts).");
                 return;
             }
             var secret = new byte[16];
@@ -227,7 +227,7 @@ namespace WhiteFox.Core.Network
             }
             catch (Exception exception)
             {
-                connection.Close(exception is Accounts.AuthException ? exception.Message : "No se pudo autenticar con Mojang: " + exception.Message);
+                connection.Close(exception is Accounts.AuthException ? exception.Message : "Could not authenticate with Mojang: " + exception.Message);
                 return;
             }
             using (var rsa = Crypto.PublicKey(publicKey))

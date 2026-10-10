@@ -41,10 +41,50 @@ namespace WhiteFox.Client
             get
             {
                 if (Key == Key.None) return "-";
+                // the layout's character for printable keys (AZERTY shows A where QWERTY has Q); the OS names of the
+                // other keys are localized ("Barra espaciadora"), so those use English names from the key code
                 var keyboard = Keyboard.current;
                 var name = keyboard != null ? keyboard[Key].displayName : null;
-                return string.IsNullOrEmpty(name) ? Key.ToString() : name;
+                if (!string.IsNullOrEmpty(name) && name.Length == 1) return name.ToUpperInvariant();
+                return EnglishName(Key);
             }
+        }
+
+        private static string EnglishName(Key key)
+        {
+            switch (key)
+            {
+                case Key.LeftCtrl: return "Left Control";
+                case Key.RightCtrl: return "Right Control";
+                case Key.Backquote: return "`";
+                case Key.Slash: return "/";
+                case Key.Backslash: return "\\";
+                case Key.Period: return ".";
+                case Key.Comma: return ",";
+                case Key.Semicolon: return ";";
+                case Key.Quote: return "'";
+                case Key.Minus: return "-";
+                case Key.Equals: return "=";
+                case Key.LeftBracket: return "[";
+                case Key.RightBracket: return "]";
+                case Key.PageUp: return "Page Up";
+                case Key.PageDown: return "Page Down";
+                case Key.UpArrow: return "Up";
+                case Key.DownArrow: return "Down";
+                case Key.LeftArrow: return "Left";
+                case Key.RightArrow: return "Right";
+            }
+            var text = key.ToString();
+            if (text.StartsWith("Digit")) return text.Substring(5);
+            if (text.StartsWith("Numpad")) return "Keypad " + text.Substring(6);
+            // LeftShift -> Left Shift, CapsLock -> Caps Lock
+            var result = new System.Text.StringBuilder();
+            for (var i = 0; i < text.Length; i++)
+            {
+                if (i > 0 && char.IsUpper(text[i]) && !char.IsUpper(text[i - 1])) result.Append(' ');
+                result.Append(text[i]);
+            }
+            return result.ToString();
         }
     }
 
@@ -84,22 +124,22 @@ namespace WhiteFox.Client
         /// <summary>Application (client) id of the Azure app used for Microsoft logins; empty disables them.</summary>
         public string MicrosoftClientId = "";
 
-        public readonly KeyBinding Forward = new KeyBinding("forward", "Avanzar", Key.W);
-        public readonly KeyBinding Back = new KeyBinding("back", "Retroceder", Key.S);
-        public readonly KeyBinding Left = new KeyBinding("left", "Izquierda", Key.A);
-        public readonly KeyBinding Right = new KeyBinding("right", "Derecha", Key.D);
-        public readonly KeyBinding Jump = new KeyBinding("jump", "Saltar / subir", Key.Space);
-        public readonly KeyBinding Sneak = new KeyBinding("sneak", "Agacharse / bajar", Key.LeftShift);
-        public readonly KeyBinding Sprint = new KeyBinding("sprint", "Correr", Key.LeftCtrl);
-        public readonly KeyBinding Inventory = new KeyBinding("inventory", "Inventario", Key.E);
-        public readonly KeyBinding Drop = new KeyBinding("drop", "Soltar ítem (Ctrl: pila)", Key.Q);
-        public readonly KeyBinding SwapHands = new KeyBinding("swap", "Cambiar de mano", Key.F);
-        public readonly KeyBinding Chat = new KeyBinding("chat", "Abrir chat", Key.T);
-        public readonly KeyBinding Command = new KeyBinding("command", "Abrir comando", Key.Slash);
-        public readonly KeyBinding Debug = new KeyBinding("debug", "Pantalla de depuración", Key.F3);
-        public readonly KeyBinding ToggleGraphics = new KeyBinding("graphics", "Cambiar gráficos", Key.F6);
-        public readonly KeyBinding Perspective = new KeyBinding("perspective", "Cambiar perspectiva", Key.F5);
-        public readonly KeyBinding PlayerList = new KeyBinding("playerlist", "Lista de jugadores", Key.Tab);
+        public readonly KeyBinding Forward = new KeyBinding("forward", "Walk Forwards", Key.W);
+        public readonly KeyBinding Back = new KeyBinding("back", "Walk Backwards", Key.S);
+        public readonly KeyBinding Left = new KeyBinding("left", "Strafe Left", Key.A);
+        public readonly KeyBinding Right = new KeyBinding("right", "Strafe Right", Key.D);
+        public readonly KeyBinding Jump = new KeyBinding("jump", "Jump / Fly Up", Key.Space);
+        public readonly KeyBinding Sneak = new KeyBinding("sneak", "Sneak / Fly Down", Key.LeftShift);
+        public readonly KeyBinding Sprint = new KeyBinding("sprint", "Sprint", Key.LeftCtrl);
+        public readonly KeyBinding Inventory = new KeyBinding("inventory", "Open/Close Inventory", Key.E);
+        public readonly KeyBinding Drop = new KeyBinding("drop", "Drop Selected Item (Ctrl: Stack)", Key.Q);
+        public readonly KeyBinding SwapHands = new KeyBinding("swap", "Swap Item With Offhand", Key.F);
+        public readonly KeyBinding Chat = new KeyBinding("chat", "Open Chat", Key.T);
+        public readonly KeyBinding Command = new KeyBinding("command", "Open Command", Key.Slash);
+        public readonly KeyBinding Debug = new KeyBinding("debug", "Debug Screen", Key.F3);
+        public readonly KeyBinding ToggleGraphics = new KeyBinding("graphics", "Toggle Graphics Mode", Key.F6);
+        public readonly KeyBinding Perspective = new KeyBinding("perspective", "Toggle Perspective", Key.F5);
+        public readonly KeyBinding PlayerList = new KeyBinding("playerlist", "List Players", Key.Tab);
         public readonly KeyBinding[] Hotbar = new KeyBinding[9];
 
         public readonly List<KeyBinding> Bindings = new List<KeyBinding>();
@@ -109,7 +149,7 @@ namespace WhiteFox.Client
             Bindings.AddRange(new[] { Forward, Back, Left, Right, Jump, Sneak, Sprint, Inventory, Drop, SwapHands, Chat, Command, Debug, ToggleGraphics, Perspective, PlayerList });
             for (var i = 0; i < 9; i++)
             {
-                Hotbar[i] = new KeyBinding("hotbar" + (i + 1), "Ranura " + (i + 1), Key.Digit1 + i);
+                Hotbar[i] = new KeyBinding("hotbar" + (i + 1), "Hotbar Slot " + (i + 1), Key.Digit1 + i);
                 Bindings.Add(Hotbar[i]);
             }
             Load();

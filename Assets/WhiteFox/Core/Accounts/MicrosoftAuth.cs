@@ -87,21 +87,21 @@ namespace WhiteFox.Core.Accounts
                     interval += 5;
                     continue;
                 }
-                if (error == "authorization_declined") throw new AuthException("Se rechazó el inicio de sesión.");
+                if (error == "authorization_declined") throw new AuthException("The sign-in was declined.");
                 if (error == "expired_token") break;
                 if (error != null) throw new AuthException("Microsoft: " + ((string)json["error_description"] ?? error));
                 var account = new Account { Type = AccountType.Microsoft, RefreshToken = (string)json["refresh_token"] };
                 await LoginMinecraft(account, (string)json["access_token"], cancel).ConfigureAwait(false);
                 return account;
             }
-            throw new AuthException("El código caducó; vuelve a intentarlo.");
+            throw new AuthException("The code expired; please try again.");
         }
 
         /// <summary>Makes sure the Minecraft token is valid, renewing everything from the refresh token when needed.</summary>
         public async Task RefreshAsync(Account account, CancellationToken cancel = default)
         {
             if (!account.IsOnline || account.HasValidToken) return;
-            if (string.IsNullOrEmpty(account.RefreshToken)) throw new AuthException("La sesión de " + account.Name + " caducó; vuelve a iniciar sesión.");
+            if (string.IsNullOrEmpty(account.RefreshToken)) throw new AuthException("The session of " + account.Name + " expired; please sign in again.");
             JObject json;
             try
             {
@@ -117,7 +117,7 @@ namespace WhiteFox.Core.Accounts
             {
                 // revoked or older than 90 days unused: only a new login helps
                 account.RefreshToken = null;
-                throw new AuthException("La sesión de " + account.Name + " caducó; vuelve a iniciar sesión.");
+                throw new AuthException("The session of " + account.Name + " expired; please sign in again.");
             }
             account.RefreshToken = (string)json["refresh_token"] ?? account.RefreshToken;
             await LoginMinecraft(account, (string)json["access_token"], cancel).ConfigureAwait(false);
@@ -152,9 +152,9 @@ namespace WhiteFox.Core.Accounts
             var request = new HttpRequestMessage(HttpMethod.Get, "https://api.minecraftservices.com/minecraft/profile");
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", account.MinecraftToken);
             var response = await Http.SendAsync(request, cancel).ConfigureAwait(false);
-            if (response.StatusCode == HttpStatusCode.NotFound) throw new AuthException("Esta cuenta de Microsoft no tiene Minecraft: Java Edition.");
+            if (response.StatusCode == HttpStatusCode.NotFound) throw new AuthException("This Microsoft account does not own Minecraft: Java Edition.");
             var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode) throw new AuthException("Minecraft: no se pudo leer el perfil (" + (int)response.StatusCode + ").");
+            if (!response.IsSuccessStatusCode) throw new AuthException("Minecraft: can not read the profile (" + (int)response.StatusCode + ").");
             var profile = JObject.Parse(body);
             account.Name = (string)profile["name"];
             account.Uuid = Guid.ParseExact((string)profile["id"], "N");
@@ -171,9 +171,9 @@ namespace WhiteFox.Core.Accounts
             var response = await Http.PostAsync("https://sessionserver.mojang.com/session/minecraft/join", new StringContent(body.ToString(), Encoding.UTF8, "application/json"), cancel).ConfigureAwait(false);
             if (response.IsSuccessStatusCode) return;
             var text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-            if ((int)response.StatusCode == 403 || text.Contains("InsufficientPrivileges")) throw new AuthException("Mojang no permite a esta cuenta jugar en servidores (multijugador desactivado o cuenta bloqueada).");
-            if ((int)response.StatusCode == 401) throw new AuthException("La sesión de Minecraft no es válida; vuelve a iniciar sesión.");
-            throw new AuthException("Mojang rechazó la conexión (" + (int)response.StatusCode + "): " + text);
+            if ((int)response.StatusCode == 403 || text.Contains("InsufficientPrivileges")) throw new AuthException("Mojang does not allow this account to join servers (multiplayer disabled or account banned).");
+            if ((int)response.StatusCode == 401) throw new AuthException("The Minecraft session is not valid; please sign in again.");
+            throw new AuthException("Mojang rejected the connection (" + (int)response.StatusCode + "): " + text);
         }
 
         private static async Task<JObject> PostForm(string url, Dictionary<string, string> form, CancellationToken cancel)
@@ -204,17 +204,17 @@ namespace WhiteFox.Core.Accounts
             // XSTS explains why an account can not use Xbox Live
             switch ((long?)error?["XErr"])
             {
-                case 2148916233: throw new AuthException("Esta cuenta de Microsoft no tiene perfil de Xbox; créalo en xbox.com y vuelve a intentarlo.");
-                case 2148916235: throw new AuthException("Xbox Live no está disponible en el país de esta cuenta.");
+                case 2148916233: throw new AuthException("This Microsoft account has no Xbox profile; create one at xbox.com and try again.");
+                case 2148916235: throw new AuthException("Xbox Live is not available in the country of this account.");
                 case 2148916236:
-                case 2148916237: throw new AuthException("Esta cuenta necesita verificación de adulto en xbox.com.");
-                case 2148916238: throw new AuthException("Es una cuenta de menor: un adulto debe añadirla a una familia de Microsoft.");
+                case 2148916237: throw new AuthException("This account needs adult verification at xbox.com.");
+                case 2148916238: throw new AuthException("This is a child account: an adult must add it to a Microsoft family.");
             }
             if (url.Contains("login_with_xbox") && (int)response.StatusCode == 403)
             {
-                throw new AuthException("Mojang no autorizó esta aplicación (client id) para iniciar sesión en Minecraft. Hay que solicitar el acceso a la API.");
+                throw new AuthException("Mojang has not authorized this application (client id) to sign in to Minecraft; API access has to be requested.");
             }
-            throw new AuthException("Error de inicio de sesión (" + (int)response.StatusCode + ") en " + new Uri(url).Host + ".");
+            throw new AuthException("Sign-in error (" + (int)response.StatusCode + ") at " + new Uri(url).Host + ".");
         }
     }
 }

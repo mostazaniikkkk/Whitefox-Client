@@ -93,7 +93,7 @@ namespace WhiteFox.Client.Gui
             for (var i = 0; i < 27; i++) Slot(window, 9 + i, panel, 8 + i % 9 * 18, 84 + i / 9 * 18);
             for (var i = 0; i < 9; i++) Slot(window, 36 + i, panel, 8 + i * 18, 142);
             Slot(window, 45, panel, 77, 62);
-            gui.Text("Crafteo", panel.x + 97, panel.y + 6, new Color32(0x40, 0x40, 0x40, 0xFF), false);
+            gui.Text("Crafting", panel.x + 97, panel.y + 6, new Color32(0x40, 0x40, 0x40, 0xFF), false);
             DrawRecipeBook(session, window, panel, recipe => FitsGrid(recipe, 2), new Vector2(104, 61));
             return panel;
         }
@@ -109,7 +109,7 @@ namespace WhiteFox.Client.Gui
             for (var i = 0; i < rows * 9 && i < window.Slots.Length; i++) Slot(window, i, panel, 8 + i % 9 * 18, 18 + i / 9 * 18);
             PlayerSlots(window, panel, top + 14);
             gui.Text(window.Title, panel.x + 8, panel.y + 6, new Color32(0x40, 0x40, 0x40, 0xFF), false);
-            gui.Text("Inventario", panel.x + 8, panel.y + top + 3, new Color32(0x40, 0x40, 0x40, 0xFF), false);
+            gui.Text("Inventory", panel.x + 8, panel.y + top + 3, new Color32(0x40, 0x40, 0x40, 0xFF), false);
             return panel;
         }
 
@@ -184,7 +184,7 @@ namespace WhiteFox.Client.Gui
             // hotbar (player inventory slots 36..44)
             var window = session.Inventory.Player;
             for (var i = 0; i < 9; i++) Slot(window, 36 + i, panel, 9 + i * 18, 112);
-            gui.Text("Buscar", panel.x + 8, panel.y + 6, new Color32(0x40, 0x40, 0x40, 0xFF), false);
+            gui.Text("Search", panel.x + 8, panel.y + 6, new Color32(0x40, 0x40, 0x40, 0xFF), false);
             return panel;
         }
 
