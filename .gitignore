@@ -1,0 +1,21 @@
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/Tools/**/bin/
+/Tools/**/obj/
+/Tools/**/cache/
+*.csproj
+!/Tools/**/*.csproj
+*.sln
+!/Tools/**/*.sln
+.vs/
+.idea/
+/Tools/TestServer/server/
+
+# third-party resource packs used for local testing (no redistribution license)
+/Assets/Others/
+/Assets/Others.meta
