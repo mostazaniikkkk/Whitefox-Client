@@ -140,13 +140,14 @@ namespace WhiteFox.Client
         public readonly KeyBinding ToggleGraphics = new KeyBinding("graphics", "Toggle Graphics Mode", Key.F6);
         public readonly KeyBinding Perspective = new KeyBinding("perspective", "Toggle Perspective", Key.F5);
         public readonly KeyBinding PlayerList = new KeyBinding("playerlist", "List Players", Key.Tab);
+        public readonly KeyBinding HideGui = new KeyBinding("hidegui", "Hide GUI", Key.F1);
         public readonly KeyBinding[] Hotbar = new KeyBinding[9];
 
         public readonly List<KeyBinding> Bindings = new List<KeyBinding>();
 
         public Settings()
         {
-            Bindings.AddRange(new[] { Forward, Back, Left, Right, Jump, Sneak, Sprint, Inventory, Drop, SwapHands, Chat, Command, Debug, ToggleGraphics, Perspective, PlayerList });
+            Bindings.AddRange(new[] { Forward, Back, Left, Right, Jump, Sneak, Sprint, Inventory, Drop, SwapHands, Chat, Command, Debug, ToggleGraphics, Perspective, PlayerList, HideGui });
             for (var i = 0; i < 9; i++)
             {
                 Hotbar[i] = new KeyBinding("hotbar" + (i + 1), "Hotbar Slot " + (i + 1), Key.Digit1 + i);
@@ -217,8 +218,12 @@ namespace WhiteFox.Client
             MicrosoftClientId = root.Table("microsoft").GetString("client_id", MicrosoftClientId);
         }
 
+        /// <summary>False for automated test runs: their command line overrides must not end up in the user's config.</summary>
+        public bool Persist = true;
+
         public void Save()
         {
+            if (!Persist) return;
             var root = new TomlTable();
             var video = root.Table("video");
             video["graphics"] = Graphics == GraphicsMode.Classic ? "classic" : "modern";

@@ -97,11 +97,14 @@ namespace WhiteFox.Client
             if (settings.Debug.WasPressed(keyboard)) DebugScreen = !DebugScreen;
             if (settings.ToggleGraphics.WasPressed(keyboard)) ToggleRenderMode = true;
             if (settings.Perspective.WasPressed(keyboard)) Perspective = (Perspective + 1) % 3;
+            if (settings.HideGui.WasPressed(keyboard)) HideGui = !HideGui;
             PlayerList = settings.PlayerList.IsPressed(keyboard);
         }
 
         /// <summary>0 = first person, 1 = third person behind, 2 = third person in front (vanilla CameraType).</summary>
         public int Perspective;
+        /// <summary>F1: HUD and hand hidden (vanilla hideGui).</summary>
+        public bool HideGui;
         public bool PlayerList;
 
         public void SetCursorLocked(bool locked)

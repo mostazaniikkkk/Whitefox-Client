@@ -128,6 +128,8 @@ namespace WhiteFox.Client
             status = "Creating textures";
             textures = new BlockTextureArray(resources.Textures);
             CreateMaterials();
+            // screenshot runs (-wf-classic, -wf-nohud, ...) never write the user's config.toml
+            if (CommandLine.Has("-wf-screenshot")) Settings.Persist = false;
             if (CommandLine.Has("-wf-classic")) Settings.Graphics = GraphicsMode.Classic;
             if (CommandLine.Has("-wf-modern")) Settings.Graphics = GraphicsMode.Modern;
 
@@ -252,6 +254,7 @@ namespace WhiteFox.Client
             session.BookOpened += (stack, slot, edit) => textScreens.OpenBook(stack, slot, edit);
             var perspective = CommandLine.Get("-wf-perspective");
             if (perspective != null) input.Perspective = int.Parse(perspective);
+            if (CommandLine.Has("-wf-nohud")) input.HideGui = true;
             ApplyRenderMode();
             accumulator = 0;
             if (!CommandLine.Has("-wf-screenshot")) input.SetCursorLocked(true);
@@ -635,7 +638,7 @@ namespace WhiteFox.Client
             weather.Render(Session, viewCamera, partialTick, Settings.ViewDistance);
             var cameraPosition = viewCamera.transform.position;
             dynamicLights.Update(Session, new Vec3d(cameraPosition.x + RenderOrigin.X, cameraPosition.y, -cameraPosition.z + RenderOrigin.Z), partialTick, lightSources);
-            firstPerson.Update(partialTick, input.Perspective == 0);
+            firstPerson.Update(partialTick, input.Perspective == 0 && !input.HideGui);
             Renderer.Update(viewCamera.transform.position);
             lightSources.Exposure = environment.Exposure;
             lightSources.Update(viewCamera.transform.position, Time.time);
@@ -859,6 +862,8 @@ namespace WhiteFox.Client
                 return;
             }
 
+            // F1 (vanilla hideGui): only the world, for screenshots
+            if (input.HideGui && !chat.Open && !Session.Dead && !Session.Inventory.AnyOpen && !textScreens.Open) return;
             entityRenderer?.DrawNameTags(gui, viewCamera, partialTick);
             hud.Draw(Session, this, input, chat, fps);
             if (textScreens.Open)

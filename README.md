@@ -10,6 +10,18 @@ development test bed.
 > servers on first start, verified by SHA-1, and only its textures, models, fonts and language files are used. Sounds
 > are fetched from Mojang's asset index the first time they play.
 
+## Screenshots
+
+| Realistic mode | Classic mode |
+|---|---|
+| ![Realistic mode: sun light, shadows and atmosphere](docs/screenshots/realistic.jpg) | ![Classic mode: the Minosoft look](docs/screenshots/classic.jpg) |
+| **Real lights at night** | **Entities** |
+| ![Torches, a lantern, glowstone and a campfire as real lights](docs/screenshots/lights.jpg) | ![Wither, guardian, iron golem, villager, horse, fox, cat, axolotl and an armor stand](docs/screenshots/entities.jpg) |
+| **Map held with both hands** | **Title screen** |
+| ![A filled map with markers held in both hands](docs/screenshots/map.jpg) | ![Title screen with the panorama](docs/screenshots/title.jpg) |
+
+<p align="center"><img src="docs/screenshots/inventory.png" alt="Inventory with 3D icons, banner and shield patterns and enchantment glint" width="400"></p>
+
 ## Download
 
 Windows builds are on the [Releases](https://github.com/mostazaniikkkk/Whitefox-Client/releases) page. Unzip and run
@@ -176,6 +188,7 @@ and the client says so.
 | 1–9, wheel | Hotbar slot |
 | E | Inventory |
 | Q / F | Drop item / swap hands |
+| F1 | Hide the HUD and hand |
 | F3 | Debug screen |
 | F5 | First / third person |
 | F6 | Realistic / classic graphics |
@@ -197,7 +210,8 @@ Command line options for testing:
 - `WhiteFox.exe -wf-connect host[:port] -wf-name Name` joins a server directly with an offline name.
 - `-wf-screenshot shot.png` captures the screen once everything has loaded and quits; with
   `-wf-pose <x> <y> <z> <yaw> <pitch>`, `-wf-time <ticks>`, `-wf-chat "/cmd;/cmd"`, `-wf-inventory`, `-wf-use x,y,z`,
-  `-wf-useitem`, `-wf-holduse`, `-wf-classic`, `-wf-nocull`, `-wf-noorigin`.
+  `-wf-useitem`, `-wf-holduse`, `-wf-nohud`, `-wf-classic`, `-wf-nocull`, `-wf-noorigin`. Screenshot runs never write
+  `config.toml`.
 
 A local test server: `Tools/TestServer/start-test-server.ps1` (downloads the official server.jar, offline mode,
 127.0.0.1 only).
