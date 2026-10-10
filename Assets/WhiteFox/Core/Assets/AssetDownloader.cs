@@ -63,7 +63,7 @@ namespace WhiteFox.Core.Assets
             this.cacheRoot = cacheRoot;
             Directory.CreateDirectory(cacheRoot);
             http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("WhiteFox/0.1");
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("WhiteFox/2.0");
         }
 
         public string ObjectPath(string sha1) => Path.Combine(cacheRoot, "objects", sha1.Substring(0, 2), sha1);

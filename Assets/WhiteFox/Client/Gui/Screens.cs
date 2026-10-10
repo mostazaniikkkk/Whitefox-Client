@@ -99,7 +99,7 @@ namespace WhiteFox.Client.Gui
                 }
             }
 
-            gui.Text("WhiteFox 0.1 (" + Protocol.VersionName + ")", 2, gui.Height - 10);
+            gui.Text("WhiteFox 2.0 (" + Protocol.VersionName + ")", 2, gui.Height - 10);
             gui.TextRight("Basado en Minosoft. No afiliado a Mojang", gui.Width - 2, gui.Height - 10);
             if (action != Action.None) Save();
             return action;

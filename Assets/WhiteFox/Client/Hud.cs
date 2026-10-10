@@ -246,7 +246,7 @@ namespace WhiteFox.Client
             var light = session.World.GetLight(block.X, block.Y, block.Z);
             var left = new List<string>
             {
-                "WhiteFox 0.1 (" + Protocol.VersionName + ")",
+                "WhiteFox 2.0 (" + Protocol.VersionName + ")",
                 $"{fps:0} fps, graphics: {(client.Modern ? "modern" : "classic")}",
                 server == null ? "Local test world" : $"{server.Host}:{server.Port} as {server.Username}, {server.State}",
                 server == null ? null : $"Network: {server.BytesReceived / 1024} KiB in, {server.BytesSent / 1024} KiB out, {server.PendingPackets} queued",
