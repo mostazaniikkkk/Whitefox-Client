@@ -101,6 +101,12 @@ namespace WhiteFox.Core.Network
             connection.PacketReceived += OnPacket;
             connection.Disconnected += reason =>
             {
+                // a server that hangs up during login without a message usually speaks another version
+                if (State != ProtocolState.Play && reason != null && reason.Contains("Server closed the connection"))
+                {
+                    reason += "\nThe server closed the connection while logging in. WhiteFox speaks Minecraft " + Protocol.VersionName +
+                              "; servers on other versions need ViaVersion, and online mode servers a Microsoft account.";
+                }
                 DisconnectReason = reason;
                 pending.Enqueue(game => game.OnDisconnected(reason));
             };
@@ -965,7 +971,7 @@ namespace WhiteFox.Core.Network
                 case Protocol.PlayS2C.PickupItem:
                 {
                     var collected = buffer.ReadVarInt();
-                    pending.Enqueue(game => game.Entities.Remove(collected));
+                    pending.Enqueue(game => game.OnPickup(collected));
                     break;
                 }
                 case Protocol.PlayS2C.PlayerInfoUpdate:

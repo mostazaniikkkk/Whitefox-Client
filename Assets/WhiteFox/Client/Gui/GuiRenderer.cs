@@ -209,6 +209,9 @@ namespace WhiteFox.Client.Gui
         public bool Focused;
         public string Placeholder = "";
 
+        /// <summary>On phones and tablets: the system keyboard while the field is focused.</summary>
+        private TouchScreenKeyboard keyboard;
+
         /// <summary>Draws and handles input; returns true when Enter was pressed while focused.</summary>
         public bool Draw(GuiRenderer gui, Rect rect, bool background = true)
         {
@@ -216,6 +219,25 @@ namespace WhiteFox.Client.Gui
             if (current.type == EventType.MouseDown && current.button == 0) Focused = rect.Contains(current.mousePosition);
 
             var submitted = false;
+            if (TouchScreenKeyboard.isSupported && current.type == EventType.Repaint)
+            {
+                if (Focused && keyboard == null) keyboard = TouchScreenKeyboard.Open(Text, TouchScreenKeyboardType.Default, false, false, false, false, Placeholder);
+                if (keyboard != null)
+                {
+                    Text = Limit(keyboard.text ?? "");
+                    if (keyboard.status == TouchScreenKeyboard.Status.Done)
+                    {
+                        submitted = Focused;
+                        Focused = false;
+                    }
+                    else if (keyboard.status != TouchScreenKeyboard.Status.Visible) Focused = false;
+                    if (!Focused)
+                    {
+                        if (keyboard.active) keyboard.active = false;
+                        keyboard = null;
+                    }
+                }
+            }
             if (Focused && current.type == EventType.KeyDown)
             {
                 if (current.keyCode == KeyCode.Return || current.keyCode == KeyCode.KeypadEnter)

@@ -84,15 +84,15 @@ namespace WhiteFox.Client.Gui
 
             if (loginError != null) gui.TextCentered(loginError, center, listBottom + 2, GuiRenderer.Red);
             var bottom = gui.Height - 54;
-            var hasClient = !string.IsNullOrWhiteSpace(settings.MicrosoftClientId);
-            if (gui.Button(new Rect(center - 155, bottom + 2, 150, 20), "Add Microsoft Account", hasClient)) StartLogin(settings.MicrosoftClientId.Trim());
+            var clientId = MicrosoftAuth.ClientId(settings.MicrosoftClientId);
+            if (gui.Button(new Rect(center - 155, bottom + 2, 150, 20), "Add Microsoft Account", clientId != null)) StartLogin(clientId);
             if (gui.Button(new Rect(center + 5, bottom + 2, 150, 20), "Add Offline Account"))
             {
                 addingOffline = true;
                 offlineName.Text = settings.OfflineName;
                 loginError = null;
             }
-            if (!hasClient && loginError == null) gui.TextCentered("Microsoft: microsoft.client_id is missing in config.toml", center, listBottom + 2, GuiRenderer.Gray);
+            if (clientId == null && loginError == null) gui.TextCentered("Microsoft sign-in is not available in this build yet", center, listBottom + 2, GuiRenderer.Gray);
             if (gui.Button(new Rect(center - 100, gui.Height - 28, 200, 20), "Done"))
             {
                 store.Save();

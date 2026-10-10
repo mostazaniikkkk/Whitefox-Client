@@ -140,7 +140,7 @@ namespace WhiteFox.Client.Gui
             pingResult = "Pinging...";
             try
             {
-                MainAddress(AddressText, out var host, out var port);
+                var (host, port) = await ServerAddress.ResolveAsync(AddressText);
                 var status = await ServerStatus.PingAsync(host, port);
                 pingResult = $"{status.Motd}\n{status.VersionName} - {status.OnlinePlayers}/{status.MaxPlayers} players - {status.PingMilliseconds} ms" +
                              (status.Compatible ? "" : "\nIncompatible: WhiteFox uses " + Protocol.VersionName);
@@ -266,9 +266,13 @@ namespace WhiteFox.Client.Gui
             if (gui.Button(new Rect(center - 155, y + 72, 150, 20), "Music & Sounds...")) action = Action.Sounds;
             if (gui.Button(new Rect(center + 5, y + 72, 150, 20), "Resource Packs...")) action = Action.ResourcePacks;
 
+            var touchModes = new[] { "Auto", "ON", "OFF" };
+            if (gui.Button(new Rect(center - 155, y + 96, 150, 20), "Touch Controls: " + touchModes[Mathf.Clamp(settings.TouchControls, 0, 2)])) settings.TouchControls = (settings.TouchControls + 1) % 3;
+            if (!Application.isMobilePlatform && gui.Button(new Rect(center + 5, y + 96, 150, 20), "Fullscreen: " + (WhiteFoxClient.Fullscreen ? "ON" : "OFF"))) WhiteFoxClient.ToggleFullscreen();
+
             gui.TextCentered(settings.Graphics == GraphicsMode.Modern
                 ? "Modern: shadows, real lights, PBR (LabPBR), water and sky"
-                : "Classic: the original Minosoft look", center, y + 102, GuiRenderer.Gray);
+                : "Classic: the original Minosoft look", center, y + 126, GuiRenderer.Gray);
 
             if (gui.Button(new Rect(center - 100, gui.Height - 30, 200, 20), "Done"))
             {

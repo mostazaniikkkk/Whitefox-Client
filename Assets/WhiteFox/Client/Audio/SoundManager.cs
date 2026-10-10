@@ -41,6 +41,8 @@ namespace WhiteFox.Client.Audio
             public float Time;
             public bool Music;
             public bool Record;
+            /// <summary>A looping source of its own (underwater ambience): the clip replaces its current one.</summary>
+            public AudioSource Target;
         }
 
         private const int MaxSources = 48;
@@ -76,6 +78,57 @@ namespace WhiteFox.Client.Audio
             music.spatialBlend = 0;
             music.playOnAwake = false;
             LoadEvents();
+            Prefetch();
+        }
+
+        /// <summary>
+        /// Downloads the sounds heard all the time (blocks, footsteps, the player, water, pickups, the UI) in the
+        /// background once, so the first hit on a block is not silent while its file is still on the way. The rest is
+        /// still fetched the first time it plays.
+        /// </summary>
+        private void Prefetch()
+        {
+            var files = new HashSet<string>();
+            void Add(string name, int depth)
+            {
+                if (depth > 4 || !events.TryGetValue(name, out var list)) return;
+                foreach (var entry in list)
+                {
+                    if (entry.IsEvent) Add(entry.Name, depth + 1);
+                    else if (!entry.Stream) files.Add(entry.Name);
+                }
+            }
+            foreach (var name in events.Keys)
+            {
+                if (name.StartsWith("block.") && (name.EndsWith(".hit") || name.EndsWith(".break") || name.EndsWith(".step") || name.EndsWith(".place") || name.EndsWith(".fall"))
+                    || name.StartsWith("entity.player.") || name.StartsWith("ambient.underwater.") || name.StartsWith("entity.generic.")
+                    || name == "entity.item.pickup" || name == "entity.experience_orb.pickup" || name == "ui.button.click" || name.StartsWith("weather.rain")
+                    || name.StartsWith("item.crop") || name == "entity.item.break")
+                {
+                    Add(name, 0);
+                }
+            }
+            var hashes = new List<string>();
+            foreach (var file in files)
+            {
+                if (resources.SoundFiles.TryGetValue("minecraft/sounds/" + file + ".ogg", out var hash)) hashes.Add(hash);
+            }
+            Task.Run(async () =>
+            {
+                foreach (var hash in hashes)
+                {
+                    try
+                    {
+                        await downloader.GetIndexObjectFileAsync(hash).ConfigureAwait(false);
+                    }
+                    catch (Exception exception)
+                    {
+                        Log.Warn("Can not prefetch a sound: " + exception.Message);
+                        return; // offline: the sounds are fetched when they play
+                    }
+                }
+                Log.Info("Prefetched " + hashes.Count + " sounds");
+            });
         }
 
         private void LoadEvents()
@@ -353,13 +406,21 @@ namespace WhiteFox.Client.Audio
                 foreach (var waitingRequest in pending)
                 {
                     // short sounds that arrive too late are dropped (a step a second later sounds wrong); music always plays
-                    if (waitingRequest.Music || waitingRequest.Record || Time.unscaledTime - waitingRequest.Time < 1.5f) Start(clip, waitingRequest);
+                    if (waitingRequest.Music || waitingRequest.Record || waitingRequest.Target != null || Time.unscaledTime - waitingRequest.Time < 1.5f) Start(clip, waitingRequest);
                 }
             };
         }
 
         private void Start(AudioClip clip, Waiting request)
         {
+            if (request.Target != null)
+            {
+                if (!wasUnderwater) return; // left the water before the clip arrived
+                request.Target.clip = clip;
+                request.Target.volume = 0;
+                request.Target.Play();
+                return;
+            }
             if (request.Record)
             {
                 if (!recordWaiting.TryGetValue(request.Entry.Name, out var record) || record == null) return;
@@ -509,9 +570,51 @@ namespace WhiteFox.Client.Audio
             Load(entry, new Waiting { Entry = entry, Music = true, Time = Time.unscaledTime });
         }
 
+        private AudioSource underwaterLoop;
+        private bool wasUnderwater;
+
+        /// <summary>
+        /// Vanilla UnderwaterAmbientSoundHandler: the enter / exit sounds, the muffled loop while the eyes are under water,
+        /// and now and then one of its additions (rare and ultra rare ones too).
+        /// </summary>
+        private void UpdateUnderwater(GameSession session)
+        {
+            var under = session.Player.EyeInWater;
+            if (under != wasUnderwater)
+            {
+                wasUnderwater = under;
+                session.PlaySound(under ? "ambient.underwater.enter" : "ambient.underwater.exit", null, 1, 1, SoundCategory.Ambient);
+                if (underwaterLoop == null)
+                {
+                    underwaterLoop = new GameObject("Underwater ambience").AddComponent<AudioSource>();
+                    underwaterLoop.transform.SetParent(root, false);
+                    underwaterLoop.loop = true;
+                    underwaterLoop.spatialBlend = 0;
+                    underwaterLoop.playOnAwake = false;
+                }
+                if (under)
+                {
+                    var entry = Pick("ambient.underwater.loop", 0);
+                    if (entry != null) Load(entry, new Waiting { Entry = entry, Target = underwaterLoop, Time = Time.unscaledTime });
+                }
+                else
+                {
+                    underwaterLoop.Stop();
+                }
+            }
+            if (!under) return;
+            underwaterLoop.volume = Mathf.MoveTowards(underwaterLoop.volume, CategoryVolume(SoundCategory.Ambient), Time.deltaTime * 0.5f);
+            var chance = Time.deltaTime * 20;
+            var roll = random.NextDouble();
+            if (roll < 0.0001 * chance) session.PlaySound("ambient.underwater.loop.additions.ultra_rare", null, 1, 1, SoundCategory.Ambient);
+            else if (roll < 0.001 * chance) session.PlaySound("ambient.underwater.loop.additions.rare", null, 1, 1, SoundCategory.Ambient);
+            else if (roll < 0.01 * chance) session.PlaySound("ambient.underwater.loop.additions", null, 1, 1, SoundCategory.Ambient);
+        }
+
         /// <summary>Cave ambience (vanilla AmbientSoundHandler mood): darkness without sky builds up mood, at 100% a cave sound.</summary>
         private void UpdateAmbience(GameSession session)
         {
+            UpdateUnderwater(session);
             var eye = session.Player.EyePosition;
             var light = session.World.GetLight((int)Math.Floor(eye.X), (int)Math.Floor(eye.Y), (int)Math.Floor(eye.Z));
             var ticks = Time.deltaTime * 20;

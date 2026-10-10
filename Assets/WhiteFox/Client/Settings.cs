@@ -118,6 +118,9 @@ namespace WhiteFox.Client
         /// <summary>Server resource packs: 0 ask, 1 always accept, 2 decline (required packs are still asked).</summary>
         public int ServerPacks;
 
+        /// <summary>Touch controls: 0 auto (phones and tablets), 1 always, 2 never.</summary>
+        public int TouchControls;
+
         /// <summary>Title screen: the last server and the name of offline accounts.</summary>
         public string Address = "localhost";
         public string OfflineName = "WhiteFox";
@@ -141,13 +144,14 @@ namespace WhiteFox.Client
         public readonly KeyBinding Perspective = new KeyBinding("perspective", "Toggle Perspective", Key.F5);
         public readonly KeyBinding PlayerList = new KeyBinding("playerlist", "List Players", Key.Tab);
         public readonly KeyBinding HideGui = new KeyBinding("hidegui", "Hide GUI", Key.F1);
+        public readonly KeyBinding Fullscreen = new KeyBinding("fullscreen", "Toggle Fullscreen", Key.F11);
         public readonly KeyBinding[] Hotbar = new KeyBinding[9];
 
         public readonly List<KeyBinding> Bindings = new List<KeyBinding>();
 
         public Settings()
         {
-            Bindings.AddRange(new[] { Forward, Back, Left, Right, Jump, Sneak, Sprint, Inventory, Drop, SwapHands, Chat, Command, Debug, ToggleGraphics, Perspective, PlayerList, HideGui });
+            Bindings.AddRange(new[] { Forward, Back, Left, Right, Jump, Sneak, Sprint, Inventory, Drop, SwapHands, Chat, Command, Debug, ToggleGraphics, Perspective, PlayerList, HideGui, Fullscreen });
             for (var i = 0; i < 9; i++)
             {
                 Hotbar[i] = new KeyBinding("hotbar" + (i + 1), "Hotbar Slot " + (i + 1), Key.Digit1 + i);
@@ -164,6 +168,12 @@ namespace WhiteFox.Client
             var path = ConfigPath;
             if (!System.IO.File.Exists(path))
             {
+                // phones start with the light classic look and a shorter render distance
+                if (Application.isMobilePlatform)
+                {
+                    Graphics = GraphicsMode.Classic;
+                    ViewDistance = 6;
+                }
                 // first run with the TOML configuration: take over what earlier versions kept in PlayerPrefs
                 LoadPlayerPrefs();
                 Save();
@@ -196,6 +206,7 @@ namespace WhiteFox.Client
 
             var controls = root.Table("controls");
             MouseSensitivity = controls.GetFloat("mouse_sensitivity", MouseSensitivity);
+            TouchControls = Mathf.Clamp(controls.GetInt("touch_controls", TouchControls), 0, 2);
             var keys = controls.Table("keys");
             foreach (var binding in Bindings)
             {
@@ -241,6 +252,7 @@ namespace WhiteFox.Client
 
             var controls = root.Table("controls");
             controls["mouse_sensitivity"] = Real(MouseSensitivity);
+            controls["touch_controls"] = (long)TouchControls;
             var keys = controls.Table("keys");
             foreach (var binding in Bindings) keys[binding.Id] = binding.Key.ToString();
 

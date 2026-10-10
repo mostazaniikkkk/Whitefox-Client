@@ -50,16 +50,18 @@ Shader "WhiteFox/Sky"
                 float3 color = WF_SkyColor(direction);
 
                 float sun = dot(direction, _WF_SunDirection.xyz);
-                color += _WF_SunColor.rgb * smoothstep(0.9988, 0.9992, sun) * 12.0;
+                // in rain the clouds hide the sun, the moon and the stars
+                float clear = 1.0 - _WF_Overcast;
+                color += _WF_SunColor.rgb * smoothstep(0.9988, 0.9992, sun) * 12.0 * clear;
 
                 float moon = dot(direction, -_WF_SunDirection.xyz);
-                color += float3(0.75, 0.8, 0.95) * smoothstep(0.9991, 0.9994, moon) * (0.2 + _WF_NightFactor * 1.5);
+                color += float3(0.75, 0.8, 0.95) * smoothstep(0.9991, 0.9994, moon) * (0.2 + _WF_NightFactor * 1.5) * clear;
 
                 if (_WF_NightFactor > 0.0 && direction.y > 0.0)
                 {
                     float3 cell = floor(direction * 300.0);
                     float star = step(0.9975, Hash(cell));
-                    color += star * _WF_NightFactor * saturate(direction.y * 3.0) * 1.5;
+                    color += star * _WF_NightFactor * saturate(direction.y * 3.0) * 1.5 * clear;
                 }
                 return half4(color, 1.0);
             }

@@ -229,14 +229,65 @@ namespace WhiteFox.Client.Gui
             if (count > 1) gui.TextRight(count.ToString(), rect.x + 17, rect.y + 9);
         }
 
+        // dragging a carried stack over slots (vanilla quick craft): the button and the slots passed so far
+        private int dragButton = -1;
+        private readonly List<int> dragSlots = new List<int>();
+
+        private int SlotAt(Vector2 mouse)
+        {
+            foreach (var pair in slots)
+            {
+                if (pair.Key.Contains(mouse)) return pair.Value;
+            }
+            return -1;
+        }
+
         private void HandleClicks(GameSession session, Rect panel)
         {
             var current = Event.current;
-            if (current.type != EventType.MouseDown || (current.button != 0 && current.button != 1)) return;
             var inventory = session.Inventory;
             var mouse = gui.Mouse;
             var shift = current.shift;
             var creative = Creative(session);
+
+            if (dragButton >= 0)
+            {
+                if (current.type == EventType.MouseDrag || current.type == EventType.MouseDown)
+                {
+                    var over = SlotAt(mouse);
+                    var limit = inventory.Carried?.Count ?? 0;
+                    if (over >= 0 && !dragSlots.Contains(over) && dragSlots.Count < limit && inventory.CanDragInto(over, creative)) dragSlots.Add(over);
+                    if (current.type == EventType.MouseDrag) current.Use();
+                }
+                if (current.rawType == EventType.MouseUp && current.button == dragButton)
+                {
+                    // released over one slot only: an ordinary click there
+                    if (dragSlots.Count == 1)
+                    {
+                        if (creative) inventory.CreativeClick(dragSlots[0], dragButton);
+                        else inventory.Click(dragSlots[0], dragButton, false);
+                    }
+                    else if (dragSlots.Count > 1)
+                    {
+                        inventory.Drag(dragSlots, dragButton, creative);
+                    }
+                    dragButton = -1;
+                    dragSlots.Clear();
+                    current.Use();
+                }
+                return;
+            }
+            if (current.type != EventType.MouseDown || (current.button != 0 && current.button != 1)) return;
+            // pressing with an item on the cursor over a slot starts a drag; the click happens on release
+            var pressed = SlotAt(mouse);
+            if (inventory.Carried != null && !shift && pressed >= 0 && inventory.CanDragInto(pressed, creative))
+            {
+                dragButton = current.button;
+                dragSlots.Clear();
+                dragSlots.Add(pressed);
+                current.Use();
+                return;
+            }
 
             foreach (var pair in catalogSlots)
             {

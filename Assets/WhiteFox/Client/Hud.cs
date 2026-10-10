@@ -69,8 +69,12 @@ namespace WhiteFox.Client
             this.items = items;
         }
 
+        /// <summary>Touch controls are on screen: the chat moves up above the D-pad.</summary>
+        private bool touchLayout;
+
         public void Draw(GameSession session, WhiteFoxClient client, PlayerInputReader input, ChatInput chat, float fps)
         {
+            touchLayout = input.TouchActive;
             var width = gui.Width;
             var height = gui.Height;
             var player = session.Player;

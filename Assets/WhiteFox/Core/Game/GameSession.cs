@@ -256,6 +256,21 @@ namespace WhiteFox.Core.Game
             World.BlockEntities.OnAction(position, action, parameter);
         }
 
+        /// <summary>
+        /// Pickup Item (vanilla ClientPacketListener.handleTakeItemEntity): the pop of an item, or the chime of an
+        /// experience orb, at the entity being picked up; then it disappears.
+        /// </summary>
+        public void OnPickup(int collected)
+        {
+            if (Entities.Entities.TryGetValue(collected, out var entity))
+            {
+                var random = SoundRandom;
+                if (entity.Type?.Name.Path == "experience_orb") PlaySound("entity.experience_orb.pickup", entity.Position, 0.1f, (float)((random.NextDouble() - random.NextDouble()) * 0.35 + 0.9), SoundCategory.Player);
+                else PlaySound("entity.item.pickup", entity.Position, 0.2f, (float)(((random.NextDouble() - random.NextDouble()) * 0.7 + 1) * 2), SoundCategory.Player);
+            }
+            Entities.Remove(collected);
+        }
+
         /// <summary>A jukebox starts (sound event of the disc) or stops (null) playing at a position.</summary>
         public event Action<BlockPos, string> Record;
 
@@ -321,8 +336,36 @@ namespace WhiteFox.Core.Game
         private static float MobPitch(Entity entity) => (float)(SoundRandom.NextDouble() - SoundRandom.NextDouble()) * 0.2f + (entity.Baby ? 1.5f : 1.0f);
 
         /// <summary>Footsteps of the own player (vanilla Entity.move: one step per block of moveDist).</summary>
+        private bool wasInWater;
+        private float swimDistance;
+        private float nextSwim;
+
+        /// <summary>
+        /// Water sounds of the player (vanilla Entity.doWaterSplashEffect / waterSwimSound): a splash when falling in,
+        /// louder when fast, and swimming strokes while moving in water.
+        /// </summary>
+        private void TickWaterSounds()
+        {
+            var v = Player.Velocity;
+            var speed = (float)Math.Sqrt(v.X * v.X * 0.2 + v.Y * v.Y + v.Z * v.Z * 0.2);
+            var inWater = Player.InWater;
+            if (inWater && !wasInWater && !Player.Flying && Spawned)
+            {
+                var volume = Math.Min(1, speed * 0.2f);
+                PlaySound(volume < 0.25f ? "entity.player.splash" : "entity.player.splash.high_speed", Player.Position, Math.Max(volume, 0.08f), 1 + (float)(SoundRandom.NextDouble() - SoundRandom.NextDouble()) * 0.4f, SoundCategory.Player);
+            }
+            wasInWater = inWater;
+            if (!inWater || Player.Flying) return;
+            var d = Player.Position - Player.PreviousPosition;
+            swimDistance += (float)Math.Sqrt(d.X * d.X + d.Y * d.Y + d.Z * d.Z) * 0.6f;
+            if (swimDistance <= nextSwim) return;
+            nextSwim = swimDistance + 1;
+            PlaySound("entity.player.swim", Player.Position, Math.Min(1, speed * 0.35f), 1 + (float)(SoundRandom.NextDouble() - SoundRandom.NextDouble()) * 0.4f, SoundCategory.Player);
+        }
+
         private void TickSteps()
         {
+            TickWaterSounds();
             var dx = Player.Position.X - Player.PreviousPosition.X;
             var dz = Player.Position.Z - Player.PreviousPosition.Z;
             if (!Player.OnGround || Player.Flying || Player.Riding || Player.InWater) return;

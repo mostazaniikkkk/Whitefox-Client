@@ -20,6 +20,9 @@ namespace WhiteFox.Client
     /// </summary>
     public sealed class WeatherRenderer : IDisposable
     {
+        /// <summary>The realistic sky is drawn (set by the client).</summary>
+        public bool RealisticSky;
+
         private const int Radius = 10;
         private const float CloudHeight = 192;
         private const float CloudCell = 12;
@@ -191,8 +194,9 @@ namespace WhiteFox.Client
                     vertices.Add(RenderOrigin.ToRender(b.x, bottom, b.z));
                     vertices.Add(RenderOrigin.ToRender(b.x, top, b.z));
                     vertices.Add(RenderOrigin.ToRender(a.x, top, a.z));
-                    var v0 = bottom * 0.25f + vOffset;
-                    var v1 = top * 0.25f + vOffset;
+                    // Unity's v grows upwards (vanilla's downwards): subtracting the scroll makes the drops fall
+                    var v0 = bottom * 0.25f - vOffset;
+                    var v1 = top * 0.25f - vOffset;
                     uvs.Add(new Vector2(0 + uOffset, v0));
                     uvs.Add(new Vector2(1 + uOffset, v0));
                     uvs.Add(new Vector2(1 + uOffset, v1));
@@ -241,6 +245,8 @@ namespace WhiteFox.Client
             var day = Mathf.Clamp01(Shader.GetGlobalFloat("_WF_DayLight"));
             var rain = session.World.RainLevel;
             var brightness = day * (1 - rain * 0.95f * 0.5f);
+            // the realistic overcast sky is bright grey: its rain clouds are a lighter grey than vanilla's
+            if (RealisticSky) brightness = day * (1 - rain * 0.3f);
             cloudMaterial.SetColor("_CloudColor", new Color(brightness * 0.9f + 0.1f, brightness * 0.9f + 0.1f, brightness * 0.85f + 0.15f, 0.8f));
 
             // the mesh is built around the anchor cell; the drift moves it continuously

@@ -24,6 +24,13 @@ namespace WhiteFox.Tests
         {
             var cache = args.Length > 0 ? args[0] : Path.Combine(AppContext.BaseDirectory, "cache");
             var resources = ClientResources.LoadAsync(cache, null, message => Console.WriteLine("  " + message)).GetAwaiter().GetResult();
+            var srvIndex = Array.IndexOf(args, "--srv");
+            if (srvIndex >= 0)
+            {
+                var resolved = WhiteFox.Core.Network.ServerAddress.ResolveAsync(args[srvIndex + 1]).GetAwaiter().GetResult();
+                Console.WriteLine(args[srvIndex + 1] + " -> " + resolved.host + ":" + resolved.port);
+                return 0;
+            }
             var serverIndex = Array.IndexOf(args, "--server");
             if (serverIndex >= 0)
             {

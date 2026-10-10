@@ -43,6 +43,19 @@ namespace WhiteFox.Core.Accounts
         private const string Scope = "XboxLive.signin offline_access";
         private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
 
+        /// <summary>
+        /// The Azure app of WhiteFox (registered once by the developers, approved by Mojang for the Minecraft login
+        /// API): shipped in the game so players just press "Add Microsoft Account". config.toml can override it.
+        /// </summary>
+        public const string BuiltInClientId = "";
+
+        /// <summary>The client id to use: the one from config.toml, else the built-in one; null when there is none.</summary>
+        public static string ClientId(string configured)
+        {
+            var id = string.IsNullOrWhiteSpace(configured) ? BuiltInClientId : configured.Trim();
+            return string.IsNullOrWhiteSpace(id) ? null : id;
+        }
+
         private readonly string clientId;
 
         /// <param name="clientId">Application (client) id of an Azure app registration for personal Microsoft accounts with public client flows enabled.</param>

@@ -107,6 +107,13 @@ namespace WhiteFox.Client
             accounts.Load();
             RefreshSelectedAccount();
             input = new PlayerInputReader(Settings);
+            TouchControls.Simulated = CommandLine.Has("-wf-touch");
+            input.Touch = new TouchControls(Settings);
+            if (Application.isMobilePlatform)
+            {
+                Application.targetFrameRate = 60;
+                Screen.sleepTimeout = SleepTimeout.NeverSleep;
+            }
             if (CommandLine.Has("-wf-acceptpacks")) Settings.ServerPacks = 1;
 
             var cache = Path.Combine(Application.persistentDataPath, "cache");
@@ -188,10 +195,11 @@ namespace WhiteFox.Client
         private async void RefreshSelectedAccount()
         {
             var account = MicrosoftAccount;
-            if (account == null || account.HasValidToken || string.IsNullOrWhiteSpace(Settings.MicrosoftClientId)) return;
+            var clientId = MicrosoftAuth.ClientId(Settings.MicrosoftClientId);
+            if (account == null || account.HasValidToken || clientId == null) return;
             try
             {
-                await new MicrosoftAuth(Settings.MicrosoftClientId.Trim()).RefreshAsync(account);
+                await new MicrosoftAuth(clientId).RefreshAsync(account);
             }
             catch (Exception exception)
             {
@@ -204,15 +212,16 @@ namespace WhiteFox.Client
         {
             if (account.IsOnline && !account.HasValidToken)
             {
-                if (string.IsNullOrWhiteSpace(Settings.MicrosoftClientId))
+                var clientId = MicrosoftAuth.ClientId(Settings.MicrosoftClientId);
+                if (clientId == null)
                 {
-                    disconnectMessage = "microsoft.client_id is missing in " + Settings.ConfigPath;
+                    disconnectMessage = "Microsoft sign-in is not available in this build yet.";
                     return;
                 }
                 loginMessage = "Signing in as " + account.Name + "...";
                 try
                 {
-                    await new MicrosoftAuth(Settings.MicrosoftClientId.Trim()).RefreshAsync(account);
+                    await new MicrosoftAuth(clientId).RefreshAsync(account);
                 }
                 catch (Exception exception)
                 {
@@ -224,7 +233,9 @@ namespace WhiteFox.Client
                 loginMessage = null;
                 accounts.Save();
             }
-            TitleScreen.MainAddress(address, out var host, out var port);
+            loginMessage = "Resolving " + address + "...";
+            var (host, port) = await ServerAddress.ResolveAsync(address);
+            loginMessage = null;
             var server = new ServerSession(host, port, account, resources.Blocks, resources.Items, resources.EntityTypes) { ViewDistance = Settings.ViewDistance };
             var session = new GameSession(resources, Settings.ViewDistance, server) { NetworkBudget = 4 };
             StartSession(session);
@@ -257,7 +268,7 @@ namespace WhiteFox.Client
             if (CommandLine.Has("-wf-nohud")) input.HideGui = true;
             ApplyRenderMode();
             accumulator = 0;
-            if (!CommandLine.Has("-wf-screenshot")) input.SetCursorLocked(true);
+            if (!CommandLine.Has("-wf-screenshot") || input.TouchActive) input.SetCursorLocked(true);
         }
 
         private void StopSession(string reason)
@@ -460,6 +471,46 @@ namespace WhiteFox.Client
             commandsDone = true;
         }
 
+        /// <summary>F11 (vanilla): borderless fullscreen on the current display, or back to a resizable window.</summary>
+        private void UpdateFullscreenKey()
+        {
+            var keyboard = UnityEngine.InputSystem.Keyboard.current;
+            if (keyboard == null || Application.isMobilePlatform || !Settings.Fullscreen.WasPressed(keyboard)) return;
+            ToggleFullscreen();
+        }
+
+        public static bool Fullscreen => Screen.fullScreenMode != FullScreenMode.Windowed;
+
+        /// <summary>Borderless fullscreen at the display's resolution, or a resizable 1280x720 window (Unity remembers it).</summary>
+        public static void ToggleFullscreen()
+        {
+            if (!Fullscreen)
+            {
+                var display = Screen.mainWindowDisplayInfo;
+                Screen.SetResolution(display.width, display.height, FullScreenMode.FullScreenWindow);
+            }
+            else
+            {
+                Screen.SetResolution(1280, 720, FullScreenMode.Windowed);
+            }
+        }
+
+        /// <summary>The inventory, chat, perspective and pause buttons of the touch controls.</summary>
+        private void HandleTouchButtons()
+        {
+            var touch = input.Touch;
+            if (touch == null) return;
+            if (touch.OpenInventory && !Session.Inventory.AnyOpen)
+            {
+                Session.Inventory.OpenPlayerScreen();
+                input.SetCursorLocked(false);
+            }
+            if (touch.OpenChat && !chat.Open) chat.Show("");
+            if (touch.TogglePerspective) input.Perspective = (input.Perspective + 1) % 3;
+            if (touch.Pause) input.SetCursorLocked(false);
+            touch.OpenInventory = touch.OpenChat = touch.TogglePerspective = touch.Pause = false;
+        }
+
         /// <summary>E opens the inventory, E or Esc close it; windows opened by the server free the mouse.</summary>
         private void UpdateInventoryKeys()
         {
@@ -559,6 +610,7 @@ namespace WhiteFox.Client
 
         private void Update()
         {
+            UpdateFullscreenKey();
             if (reloading)
             {
                 Session?.ProcessNetwork(6);
@@ -594,6 +646,7 @@ namespace WhiteFox.Client
                 input.SetCursorLocked(true);
             }
             if (overlay == Overlay.None && !textScreens.Open) input.Read(Session, chat);
+            HandleTouchButtons();
             if (CommandLine.Has("-wf-tab")) input.PlayerList = true;
             if (CommandLine.Has("-wf-debug")) input.DebugScreen = true;
             if (input.ToggleRenderMode || ModernSky != environment.Enabled)
@@ -635,6 +688,7 @@ namespace WhiteFox.Client
             entityRenderer.Update(partialTick);
             blockEntityRenderer.Update(partialTick);
             particles.Render(viewCamera, partialTick);
+            weather.RealisticSky = environment.Enabled;
             weather.Render(Session, viewCamera, partialTick, Settings.ViewDistance);
             var cameraPosition = viewCamera.transform.position;
             dynamicLights.Update(Session, new Vec3d(cameraPosition.x + RenderOrigin.X, cameraPosition.y, -cameraPosition.z + RenderOrigin.Z), partialTick, lightSources);
@@ -708,6 +762,7 @@ namespace WhiteFox.Client
             var daylight = Mathf.Clamp01((float)Math.Cos(angle * Math.PI * 2.0) * 2.0f + 0.5f);
             // rain and thunder darken the sky (vanilla Level.getSkyDarken), lightning flashes it
             var rain = Session.World.RainLevel;
+            var overworldWeather = Session.Dimension.Effects == "minecraft:overworld";
             var thunder = Session.World.ThunderLevel * rain;
             daylight *= 1 - rain * 5 / 16f;
             daylight *= 1 - thunder * 5 / 16f;
@@ -774,6 +829,8 @@ namespace WhiteFox.Client
             RenderSettings.ambientSkyColor = sky;
 
             // the realistic mode uses its own sky model; fog starts later because the atmosphere already fades
+            environment.Rain = overworldWeather ? rain : 0;
+            environment.Thunder = overworldWeather ? Session.World.ThunderLevel : 0;
             if (environment.Enabled) environment.Update(Session.World.TimeOfDay, bossFog ? fogStart : Settings.ViewDistance * 16 * 0.55f, bossFog ? fogEnd : Settings.ViewDistance * 16);
 
             // night vision lights everything up (vanilla: full brightness lightmap)
@@ -833,7 +890,7 @@ namespace WhiteFox.Client
                 }
                 if (loginMessage != null)
                 {
-                    MessageScreen.Draw(gui, "Microsoft Account", loginMessage, null);
+                    MessageScreen.Draw(gui, "Joining Server", loginMessage, null);
                     return;
                 }
                 switch (title.Draw(gui, null, MicrosoftAccount))
@@ -866,6 +923,8 @@ namespace WhiteFox.Client
             if (input.HideGui && !chat.Open && !Session.Dead && !Session.Inventory.AnyOpen && !textScreens.Open) return;
             entityRenderer?.DrawNameTags(gui, viewCamera, partialTick);
             hud.Draw(Session, this, input, chat, fps);
+            input.GuiScale = gui.Scale;
+            if (input.TouchActive && input.CursorLocked && !chat.Open && !Session.Dead && !Session.Inventory.AnyOpen && !textScreens.Open) input.Touch.Draw(gui, Session);
             if (textScreens.Open)
             {
                 textScreens.Draw(Session);

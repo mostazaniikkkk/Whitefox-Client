@@ -17,6 +17,7 @@ namespace WhiteFox.Client
     {
         private static readonly int SunDirection = Shader.PropertyToID("_WF_SunDirection");
         private static readonly int SunColor = Shader.PropertyToID("_WF_SunColor");
+        private static readonly int Overcast = Shader.PropertyToID("_WF_Overcast");
         private static readonly int SkyZenith = Shader.PropertyToID("_WF_SkyZenith");
         private static readonly int SkyHorizon = Shader.PropertyToID("_WF_SkyHorizon");
         private static readonly int BlockLightColor = Shader.PropertyToID("_WF_BlockLightColor");
@@ -36,6 +37,9 @@ namespace WhiteFox.Client
         public float SunIntensity = 3.2f;
         public float Ambient = 1.0f;
         public float BlockLightIntensity = 2.2f;
+        /// <summary>Rain (0..1) and thunder (0..1): an overcast sky, a hidden sun, soft light and closer grey fog.</summary>
+        public float Rain;
+        public float Thunder;
         public bool Enabled { get; private set; }
         public Light Sun => sun;
         /// <summary>Relative brightness of artificial lights: low at noon (the eye adapts to the sun), full at night.</summary>
@@ -134,14 +138,23 @@ namespace WhiteFox.Client
             // the main light is the sun during the day and the moon during the night
             var moon = elevation < -0.05f;
             var lightDirection = moon ? -sunDirection : sunDirection;
-            var intensity = moon ? 0.25f * night : SunIntensity * Mathf.Clamp01(elevation * 5.0f + 0.15f);
+            // clouds cover the sky in rain: the sun light becomes weak and diffuse, the sky a grey overcast
+            var overcast = Mathf.Clamp01(Rain) * (0.82f + 0.12f * Mathf.Clamp01(Thunder));
+            float Gray(Color c) => c.r * 0.3f + c.g * 0.59f + c.b * 0.11f;
+            var zenithGray = Gray(zenith) * (0.62f - 0.2f * Thunder);
+            var horizonGray = Gray(horizon) * (0.7f - 0.2f * Thunder);
+            zenith = Color.Lerp(zenith, new Color(zenithGray, zenithGray, zenithGray * 1.04f), overcast);
+            horizon = Color.Lerp(horizon, new Color(horizonGray, horizonGray, horizonGray * 1.04f), overcast);
+            sunColor = Color.Lerp(sunColor, new Color(0.85f, 0.88f, 0.92f), overcast);
+            Shader.SetGlobalFloat(Overcast, overcast);
+            var intensity = (moon ? 0.25f * night : SunIntensity * Mathf.Clamp01(elevation * 5.0f + 0.15f)) * (1 - overcast * 0.85f);
             sun.transform.rotation = Quaternion.LookRotation(-lightDirection);
             sun.color = moon ? new Color(0.55f, 0.65f, 1.0f) : sunColor;
             sun.intensity = intensity;
             sun.shadows = intensity > 0.01f && sunShadows ? LightShadows.Soft : LightShadows.None;
 
             Shader.SetGlobalVector(SunDirection, sunDirection);
-            Shader.SetGlobalVector(SunColor, sunColor.linear * (SunIntensity * Mathf.Clamp01(elevation * 5.0f + 0.3f)));
+            Shader.SetGlobalVector(SunColor, sunColor.linear * (SunIntensity * Mathf.Clamp01(elevation * 5.0f + 0.3f) * (1 - overcast * 0.85f)));
             Shader.SetGlobalVector(SkyZenith, zenith.linear * 1.3f);
             Shader.SetGlobalVector(SkyHorizon, horizon.linear * 1.3f);
             Shader.SetGlobalVector(BlockLightColor, new Color(1.0f, 0.72f, 0.42f).linear * BlockLightIntensity);
@@ -150,8 +163,9 @@ namespace WhiteFox.Client
             Shader.SetGlobalFloat(AmbientStrength, Ambient * Mathf.Lerp(0.25f, 1.0f, day));
 
             RenderSettings.fogColor = horizon;
-            RenderSettings.fogStartDistance = fogStart;
-            RenderSettings.fogEndDistance = fogEnd;
+            // rain brings the fog closer (vanilla thickens it a little in rain, the realistic sky a lot)
+            RenderSettings.fogStartDistance = fogStart * (1 - overcast * 0.6f);
+            RenderSettings.fogEndDistance = fogEnd * (1 - overcast * 0.35f);
         }
 
         public void Dispose()

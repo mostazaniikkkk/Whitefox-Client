@@ -12,6 +12,7 @@ float4 _WF_SkyZenith;      // linear
 float4 _WF_SkyHorizon;     // linear
 float4 _WF_BlockLightColor; // linear, includes intensity
 float _WF_NightFactor;
+float _WF_Overcast;
 float _WF_AmbientStrength;
 
 float3 WF_SkyColor(float3 direction)

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- WhiteFox icon: a silver fox tail on black. GPL-3.0-or-later, part of WhiteFox. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="fur" x1="0.15" y1="1" x2="0.85" y2="0">
+      <stop offset="0" stop-color="#5d636b"/>
+      <stop offset="0.45" stop-color="#a9b0b8"/>
+      <stop offset="0.8" stop-color="#dfe4e9"/>
+      <stop offset="1" stop-color="#ffffff"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="0.6" stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="180" fill="#000000"/>
+  <!-- the tail: base at the bottom left, sweeping up into a curled tip at the top right -->
+  <path id="tail" fill="url(#fur)" d="M 352 902 C 196 792 158 560 268 404 C 372 256 560 190 742 132 C 790 116 838 98 866 74 C 856 150 820 214 764 262 C 818 252 856 232 884 206 C 862 300 790 362 704 394 C 752 404 796 400 834 386 C 790 470 700 508 606 516 C 548 586 512 680 506 770 C 502 822 488 866 452 902 C 420 930 384 926 352 902 Z"/>
+  <!-- white tip -->
+  <path fill="#ffffff" d="M 742 132 C 790 116 838 98 866 74 C 856 150 820 214 764 262 C 818 252 856 232 884 206 C 862 300 790 362 704 394 C 690 360 676 336 652 318 C 690 290 704 262 700 236 C 664 252 634 256 604 252 C 650 214 692 172 742 132 Z"/>
+  <!-- fur strands -->
+  <g fill="none" stroke="#3b4047" stroke-width="14" stroke-linecap="round" opacity="0.55">
+    <path d="M 330 820 C 270 700 280 560 360 450"/>
+    <path d="M 410 840 C 380 720 400 600 470 500"/>
+    <path d="M 420 420 C 480 360 560 320 640 296"/>
+  </g>
+  <path fill="url(#shine)" d="M 300 760 C 250 640 270 500 360 400 C 450 300 580 250 700 214 C 600 270 480 330 410 430 C 350 520 330 640 300 760 Z"/>
+</svg>

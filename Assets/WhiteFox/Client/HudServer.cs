@@ -170,7 +170,7 @@ namespace WhiteFox.Client
         private void DrawChat(GameSession session, ChatInput chat)
         {
             const float chatWidth = 320;
-            var bottom = gui.Height - 40;
+            var bottom = touchLayout && !chat.Open ? gui.Height - 104 : gui.Height - 40;
             var now = Environment.TickCount;
             chatRows.Clear();
             for (var i = session.Chat.Count - 1; i >= 0 && chatRows.Count < (chat.Open ? 20 : 10); i--)

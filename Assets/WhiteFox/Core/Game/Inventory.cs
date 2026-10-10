@@ -220,6 +220,73 @@ namespace WhiteFox.Core.Game
             game.UpdateHotbar();
         }
 
+        /// <summary>A slot a drag can put the carried item into (vanilla AbstractContainerMenu.canItemQuickReplace).</summary>
+        public bool CanDragInto(int slot, bool creative)
+        {
+            if (Carried == null) return false;
+            ItemStack current;
+            if (creative)
+            {
+                if (slot < 5 || slot >= Player.Slots.Length) return false;
+                current = Player.Slots[slot];
+            }
+            else
+            {
+                var window = Active;
+                if (slot < 0 || slot >= window.Slots.Length || window.IsPlayer && slot == 0) return false;
+                current = window.Slots[slot];
+            }
+            return current == null || SameItem(current, Carried) && current.Count < current.Item.StackSize;
+        }
+
+        /// <summary>
+        /// Dragging the carried stack over slots (vanilla quick craft, Click Container mode 5): the left button splits it
+        /// evenly, the right button puts one item in each slot; what does not fit stays on the cursor.
+        /// </summary>
+        public void Drag(List<int> targets, int button, bool creative)
+        {
+            if (Carried == null || targets.Count == 0) return;
+            var window = Active;
+            var total = Carried.Count;
+            var each = button == 0 ? System.Math.Max(1, total / targets.Count) : 1;
+            var left = total;
+            var changed = new Dictionary<int, ItemStack>();
+            foreach (var slot in targets)
+            {
+                if (left <= 0) break;
+                var current = creative ? Player.Slots[slot] : window.Slots[slot];
+                var have = current?.Count ?? 0;
+                var max = Carried.Item.StackSize;
+                var add = System.Math.Min(System.Math.Min(each, left), max - have);
+                if (add <= 0) continue;
+                var result = Copy(Carried, have + add);
+                left -= add;
+                if (creative)
+                {
+                    Player.Slots[slot] = result;
+                    Server?.SendCreativeSlot(slot, result);
+                }
+                else
+                {
+                    window.Slots[slot] = result;
+                    changed[slot] = result;
+                    if (!window.IsPlayer && window.ToPlayerSlot(slot) >= 0) Player.Slots[window.ToPlayerSlot(slot)] = result;
+                }
+            }
+            var carriedBefore = Carried;
+            Carried = left > 0 ? Copy(carriedBefore, left) : null;
+            if (!creative && Server != null)
+            {
+                // start, one packet per slot, end (buttons 0/1/2 for the left button, 4/5/6 for the right one)
+                var start = button == 0 ? 0 : 4;
+                var empty = new Dictionary<int, ItemStack>();
+                Server.SendClickContainer(window.Id, window.StateId, -999, start, 5, empty, carriedBefore);
+                foreach (var slot in targets) Server.SendClickContainer(window.Id, window.StateId, slot, start + 1, 5, empty, carriedBefore);
+                Server.SendClickContainer(window.Id, window.StateId, -999, start + 2, 5, changed, Carried);
+            }
+            game.UpdateHotbar();
+        }
+
         /// <summary>Vanilla pickup click: returns the new slot content and updates the carried stack.</summary>
         private ItemStack ClickSlot(ItemStack slot, int button)
         {

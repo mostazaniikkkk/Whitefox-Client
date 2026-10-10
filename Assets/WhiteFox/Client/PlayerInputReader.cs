@@ -18,7 +18,14 @@ namespace WhiteFox.Client
         public bool DebugScreen;
         /// <summary>Set when the graphics key was pressed (classic / modern rendering).</summary>
         public bool ToggleRenderMode;
-        public bool CursorLocked => Cursor.lockState == CursorLockMode.Locked;
+        /// <summary>Touch controls (phones, tablets, -wf-touch), or null.</summary>
+        public TouchControls Touch;
+        private bool locked;
+
+        /// <summary>Playing (not in a menu): the locked mouse cursor on a PC, the game screen with touch controls.</summary>
+        public bool CursorLocked => TouchActive ? locked : Cursor.lockState == CursorLockMode.Locked;
+
+        public bool TouchActive => Touch != null && Touch.Enabled;
 
         public PlayerInputReader(Settings settings)
         {
@@ -39,7 +46,7 @@ namespace WhiteFox.Client
                 input.UseHeld = true;
                 return;
             }
-            if (keyboard == null || mouse == null) return;
+            if (keyboard == null && mouse == null && !TouchActive) return;
 
             if (chat.Open || !CursorLocked)
             {
@@ -48,21 +55,51 @@ namespace WhiteFox.Client
                 input.UseHeld = false;
                 return;
             }
-            if (keyboard.escapeKey.wasPressedThisFrame)
+            if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
             {
                 SetCursorLocked(false);
                 return;
             }
-            if (settings.Chat.WasPressed(keyboard) || settings.Command.WasPressed(keyboard))
+            if (keyboard != null && (settings.Chat.WasPressed(keyboard) || settings.Command.WasPressed(keyboard)))
             {
                 chat.Show(settings.Command.WasPressed(keyboard) ? "/" : "");
                 input.Movement = default;
                 return;
             }
 
-            var delta = mouse.delta.ReadValue();
-            session.Rotate(delta.x * settings.MouseSensitivity, -delta.y * settings.MouseSensitivity);
+            input.Movement = default;
+            input.AttackHeld = false;
+            input.UseHeld = false;
+            if (mouse != null) ReadMouse(session, mouse);
+            if (keyboard != null) ReadKeyboard(session, keyboard);
+            if (TouchActive) Touch.Apply(session, GuiScale);
+        }
 
+        /// <summary>GUI scale of the last frame (touch buttons are laid out in GUI units).</summary>
+        public float GuiScale = 2;
+
+        private void ReadMouse(GameSession session, Mouse mouse)
+        {
+            var input = session.Input;
+            // a simulated touchscreen (-wf-touch) moves the mouse: only the touch look turns the camera then
+            if (!TouchActive)
+            {
+                var delta = mouse.delta.ReadValue();
+                session.Rotate(delta.x * settings.MouseSensitivity, -delta.y * settings.MouseSensitivity);
+                input.AttackHeld = mouse.leftButton.isPressed;
+                input.AttackPressed |= mouse.leftButton.wasPressedThisFrame;
+                input.UseHeld = mouse.rightButton.isPressed;
+                input.UsePressed |= mouse.rightButton.wasPressedThisFrame;
+                input.PickPressed |= mouse.middleButton.wasPressedThisFrame;
+            }
+            var scroll = mouse.scroll.ReadValue().y;
+            if (scroll < 0) session.SelectedSlot = (session.SelectedSlot + 1) % 9;
+            else if (scroll > 0) session.SelectedSlot = (session.SelectedSlot + 8) % 9;
+        }
+
+        private void ReadKeyboard(GameSession session, Keyboard keyboard)
+        {
+            var input = session.Input;
             var movement = input.Movement;
             movement.Forwards = (settings.Forward.IsPressed(keyboard) ? 1 : 0) - (settings.Back.IsPressed(keyboard) ? 1 : 0);
             movement.Sideways = (settings.Left.IsPressed(keyboard) ? 1 : 0) - (settings.Right.IsPressed(keyboard) ? 1 : 0);
@@ -80,15 +117,6 @@ namespace WhiteFox.Client
                 input.DropStack = keyboard.leftCtrlKey.isPressed || keyboard.rightCtrlKey.isPressed;
             }
             input.SwapPressed |= settings.SwapHands.WasPressed(keyboard);
-            input.AttackHeld = mouse.leftButton.isPressed;
-            input.AttackPressed |= mouse.leftButton.wasPressedThisFrame;
-            input.UseHeld = mouse.rightButton.isPressed;
-            input.UsePressed |= mouse.rightButton.wasPressedThisFrame;
-            input.PickPressed |= mouse.middleButton.wasPressedThisFrame;
-
-            var scroll = mouse.scroll.ReadValue().y;
-            if (scroll < 0) session.SelectedSlot = (session.SelectedSlot + 1) % 9;
-            else if (scroll > 0) session.SelectedSlot = (session.SelectedSlot + 8) % 9;
             for (var i = 0; i < 9; i++)
             {
                 if (settings.Hotbar[i].WasPressed(keyboard)) session.SelectedSlot = i;
@@ -109,6 +137,8 @@ namespace WhiteFox.Client
 
         public void SetCursorLocked(bool locked)
         {
+            this.locked = locked;
+            if (TouchActive) return; // no cursor to lock: "locked" only means playing
             Cursor.lockState = locked ? CursorLockMode.Locked : CursorLockMode.None;
             Cursor.visible = !locked;
         }
