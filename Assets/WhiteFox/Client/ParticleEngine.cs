@@ -672,12 +672,19 @@ namespace WhiteFox.Client
         {
             var world = session.World;
             var center = session.Player.Position;
+            ambientSession = session;
             for (var i = 0; i < 667; i++)
             {
                 AnimateBlock(world, (int)Math.Floor(center.X) + random.Next(16) - random.Next(16), (int)Math.Floor(center.Y) + random.Next(16) - random.Next(16), (int)Math.Floor(center.Z) + random.Next(16) - random.Next(16));
                 AnimateBlock(world, (int)Math.Floor(center.X) + random.Next(32) - random.Next(32), (int)Math.Floor(center.Y) + random.Next(32) - random.Next(32), (int)Math.Floor(center.Z) + random.Next(32) - random.Next(32));
             }
         }
+
+        private GameSession ambientSession;
+
+        /// <summary>A block sound vanilla plays on the client while animating (ClientLevel.playLocalSound).</summary>
+        private void Sound(string name, float x, float y, float z, float volume, float pitch) =>
+            ambientSession?.PlaySound(name, new Vec3d(x, y, z), volume, pitch, SoundCategory.Block);
 
         private void AnimateBlock(World world, int x, int y, int z)
         {
@@ -713,15 +720,41 @@ namespace WhiteFox.Client
                 }
                 case "campfire":
                 case "soul_campfire":
-                    if (state["lit"] == "true" && random.Next(10) == 0) Add("campfire_cosy_smoke", center + new Vector3((Rand() - 0.5f) * 0.6f, 0, (Rand() - 0.5f) * 0.6f), Vector3.zero, none);
+                    if (state["lit"] == "true" && random.Next(10) == 0)
+                    {
+                        Sound("block.campfire.crackle", x + 0.5f, y + 0.5f, z + 0.5f, 0.5f + Rand(), Rand() * 0.7f + 0.6f);
+                        Add("campfire_cosy_smoke", center + new Vector3((Rand() - 0.5f) * 0.6f, 0, (Rand() - 0.5f) * 0.6f), Vector3.zero, none);
+                    }
                     break;
                 case "fire":
                 case "soul_fire":
-                    if (random.Next(24) == 0) Add("large_smoke", new Vector3(x + Rand(), y + Rand() * 0.5f + 0.5f, z + Rand()), Vector3.zero, none);
+                    if (random.Next(24) == 0)
+                    {
+                        Sound("block.fire.ambient", x + 0.5f, y + 0.5f, z + 0.5f, 1 + Rand(), Rand() * 0.7f + 0.3f);
+                        Add("large_smoke", new Vector3(x + Rand(), y + Rand() * 0.5f + 0.5f, z + Rand()), Vector3.zero, none);
+                    }
                     break;
                 case "lava":
-                    if (world.GetBlock(x, y + 1, z) == null && random.Next(100) == 0) Add("lava", new Vector3(x + Rand(), y + 1, z + Rand()), Vector3.zero, none);
+                    // LavaFluid.animateTick: pops with a spark, and the slow bubbling, under open air
+                    if (world.GetBlock(x, y + 1, z) != null) break;
+                    if (random.Next(100) == 0)
+                    {
+                        var spark = new Vector3(x + Rand(), y + 1, z + Rand());
+                        Add("lava", spark, Vector3.zero, none);
+                        Sound("block.lava.pop", spark.x, spark.y, spark.z, 0.2f + Rand() * 0.2f, 0.9f + Rand() * 0.15f);
+                    }
+                    if (random.Next(200) == 0) Sound("block.lava.ambient", x + 0.5f, y + 0.5f, z + 0.5f, 0.2f + Rand() * 0.2f, 0.9f + Rand() * 0.15f);
                     break;
+                case "water":
+                {
+                    // WaterFluid.animateTick: flowing (not falling) water murmurs; sources and falls show the underwater specks
+                    int.TryParse(state["level"], out var level);
+                    if (level > 0 && level < 8)
+                    {
+                        if (random.Next(64) == 0) Sound("block.water.ambient", x + 0.5f, y + 0.5f, z + 0.5f, Rand() * 0.25f + 0.75f, Rand() + 0.5f);
+                    }
+                    break;
+                }
                 case "nether_portal":
                     for (var i = 0; i < 4; i++)
                     {
@@ -739,6 +772,7 @@ namespace WhiteFox.Client
                     {
                         var facing = Directions.Parse(state["facing"] ?? "north");
                         var position = new Vector3(x + 0.5f + facing.X() * 0.52f, y + Rand() * 6 / 16f, z + 0.5f + facing.Z() * 0.52f);
+                        if (random.Next(10) == 0) Sound(name == "furnace" ? "block.furnace.fire_crackle" : name == "smoker" ? "block.smoker.smoke" : "block.blastfurnace.fire_crackle", x + 0.5f, y, z + 0.5f, 1, 1);
                         Add("smoke", position, Vector3.zero, none);
                         if (name == "furnace") Add("flame", position, Vector3.zero, none, true);
                     }

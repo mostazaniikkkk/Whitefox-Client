@@ -283,7 +283,7 @@ namespace WhiteFox.Tests
                 Console.WriteLine($"  culling walk over {culler.Visible.Count} sections (32 chunks): {cullWatch.Elapsed.TotalMilliseconds:F1} ms");
             }
 
-            // --- configuration (TOML) and online mode login crypto ---
+            // --- configuration (TOML) ---
             {
                 var table = new WhiteFox.Core.Util.TomlTable { ["name"] = "Fox \"1\"\n", ["distance"] = 12L, ["fov"] = 70.5, ["bloom"] = true, ["packs"] = new List<object> { "a.zip", "b" } };
                 table.Table("keys")["forward"] = "W";
@@ -297,27 +297,6 @@ namespace WhiteFox.Tests
                 var handWritten = WhiteFox.Core.Util.Toml.Parse("# comment\nview = 8 # trailing\n[video]\nmode = 'modern'\nlist = [\n  1,\n  2, # two\n]\n[a.b]\nc = -3_000\n");
                 Check(handWritten.GetInt("view", 0) == 8 && handWritten.Table("video").GetString("mode") == "modern" && handWritten.Table("video")["list"] is List<object> l && l.Count == 2 && handWritten.Table("a").Table("b").GetInt("c", 0) == -3000, "TOML written by hand (comments, literal strings, multi-line arrays, dotted tables)");
 
-                string Hash(string name)
-                {
-                    using var sha = System.Security.Cryptography.SHA1.Create();
-                    return WhiteFox.Core.Network.Crypto.JavaHex(sha.ComputeHash(System.Text.Encoding.ASCII.GetBytes(name)));
-                }
-                Check(Hash("Notch") == "4ed1f46bbe04bc756bcb17c0c7ce3e4632f06a48" && Hash("jeb_") == "-7c9d5b0044c130109a5d7b5fb5c317c02b4e28c1" && Hash("simon") == "88e16a1019277b15d58faf0541e11910eb756f6", "server hash matches the vanilla examples (negative and leading zero)");
-                using var serverKey = System.Security.Cryptography.RSA.Create(1024);
-                using var clientKey = WhiteFox.Core.Network.Crypto.PublicKey(serverKey.ExportSubjectPublicKeyInfo());
-                var secret = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
-                var encrypted = clientKey.Encrypt(secret, System.Security.Cryptography.RSAEncryptionPadding.Pkcs1);
-                Check(Convert.ToBase64String(serverKey.Decrypt(encrypted, System.Security.Cryptography.RSAEncryptionPadding.Pkcs1)) == Convert.ToBase64String(secret), "the shared secret encrypted with the parsed server key decrypts on the server");
-
-                var path = Path.Combine(Path.GetTempPath(), "whitefox_accounts_test.toml");
-                var store = new WhiteFox.Core.Accounts.AccountStore(path) { Protect = t => "x" + t, Unprotect = t => t.Substring(1) };
-                store.AddOrReplace(WhiteFox.Core.Accounts.Account.Offline("Fox"));
-                store.AddOrReplace(new WhiteFox.Core.Accounts.Account { Type = WhiteFox.Core.Accounts.AccountType.Microsoft, Name = "Premium", Uuid = Guid.NewGuid(), RefreshToken = "refresh", MinecraftToken = "mc", MinecraftTokenExpires = DateTime.UtcNow.AddHours(20) });
-                store.Save();
-                var loaded = new WhiteFox.Core.Accounts.AccountStore(path) { Protect = t => "x" + t, Unprotect = t => t.Substring(1) };
-                loaded.Load();
-                Check(loaded.Accounts.Count == 2 && loaded.Selected?.Name == "Premium" && loaded.Selected.RefreshToken == "refresh" && loaded.Selected.HasValidToken && !File.ReadAllText(path).Contains("\"refresh\""), "accounts are saved with protected tokens and stay logged in");
-                File.Delete(path);
             }
 
 

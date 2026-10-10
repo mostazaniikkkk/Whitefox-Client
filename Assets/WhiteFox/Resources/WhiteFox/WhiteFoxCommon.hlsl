@@ -15,6 +15,35 @@ float _WF_NightFactor;
 float _WF_Overcast;
 float _WF_AmbientStrength;
 
+// Henyey-Greenstein phase function (forward scattering for g > 0)
+float WF_Phase(float cosine, float g)
+{
+    float g2 = g * g;
+    return (1.0 - g2) / (4.0 * PI * pow(max(1.0 + g2 - 2.0 * g * cosine, 1e-4), 1.5));
+}
+
+// The day sky as analytic single scattering (like the atmosphere of Iris shader packs such as Arc Shader, MIT):
+// the air along the view scatters sunlight, blue the most (Rayleigh, 1 / wavelength^4) and haze around the sun
+// (Mie); the light reaching the air is itself reddened by the air it crossed, which makes sunrise and sunset orange.
+// The amount of air grows towards the horizon (relative air mass ~ 1 / (sin(elevation) + 0.25) for the view, + 0.12
+// for the sun so that sunsets turn deep orange).
+float3 WF_Atmosphere(float3 direction)
+{
+    const float3 rayleigh = float3(0.17, 0.41, 1.0) * 0.6;
+    float up = max(direction.y, 0.0);
+    float viewAir = 1.0 / (up + 0.25);
+    float sunAir = 1.0 / (max(_WF_SunDirection.y, 0.0) + 0.12);
+    float cosine = dot(direction, _WF_SunDirection.xyz);
+    // the sun light is white at noon (air mass ~1) and loses its blue on the long path at sunrise and sunset
+    float3 sunlight = exp(-rayleigh * max(sunAir - 0.9, 0.0));
+    float3 air = 1.0 - exp(-rayleigh * viewAir);
+    float3 scatter = air * (0.75 * (1.0 + cosine * cosine));
+    float haze = WF_Phase(cosine, 0.8) * (1.0 - exp(-0.12 * viewAir));
+    // light scattered more than once keeps the high sky blue while the sun is low
+    float3 multiple = air * float3(0.3, 0.5, 1.0) * 0.8 * saturate(_WF_SunDirection.y * 3.0 + 0.35);
+    return sunlight * (scatter * 1.8 + haze * float3(1.0, 0.95, 0.85) * 0.9) + multiple;
+}
+
 float3 WF_SkyColor(float3 direction)
 {
     direction = normalize(direction);
@@ -24,6 +53,14 @@ float3 WF_SkyColor(float3 direction)
     if (up < 0.0) sky = lerp(_WF_SkyHorizon.rgb, ground, saturate(-up * 4.0));
     float sun = saturate(dot(direction, _WF_SunDirection.xyz));
     sky += _WF_SunColor.rgb * (pow(sun, 16.0) * 0.15 + pow(sun, 3.0) * 0.04) * saturate(1.2 - abs(up));
+    // by day (and in the twilight) the scattering sky; the gradient stays for the night and overcast skies
+    float day = saturate(_WF_SunDirection.y * 5.0 + 0.25) * (1.0 - _WF_Overcast);
+    if (day > 0.0)
+    {
+        float3 atmosphere = WF_Atmosphere(direction);
+        if (up < 0.0) atmosphere = lerp(WF_Atmosphere(float3(direction.x, 0.0, direction.z)), atmosphere * 0.3, saturate(-up * 4.0));
+        sky = lerp(sky, atmosphere, day);
+    }
     return sky;
 }
 

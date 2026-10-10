@@ -13,13 +13,16 @@ namespace WhiteFox.Core.Data
         public readonly ResourceLocation Name;
         public readonly string DisplayName;
         public readonly int StackSize;
+        /// <summary>Uses before the item breaks (tools, weapons, armor...), 0 for items without durability.</summary>
+        public readonly int MaxDurability;
 
-        public Item(int id, ResourceLocation name, string displayName, int stackSize)
+        public Item(int id, ResourceLocation name, string displayName, int stackSize, int maxDurability = 0)
         {
             Id = id;
             Name = name;
             DisplayName = displayName;
             StackSize = stackSize;
+            MaxDurability = maxDurability;
         }
 
         public override string ToString() => Name.ToString();
@@ -42,7 +45,7 @@ namespace WhiteFox.Core.Data
             var registry = new ItemRegistry();
             foreach (var entry in JArray.Parse(json))
             {
-                var item = new Item((int)entry["id"], ResourceLocation.Minecraft((string)entry["name"]), (string)entry["displayName"], (int?)entry["stackSize"] ?? 64);
+                var item = new Item((int)entry["id"], ResourceLocation.Minecraft((string)entry["name"]), (string)entry["displayName"], (int?)entry["stackSize"] ?? 64, (int?)entry["maxDurability"] ?? 0);
                 registry.byId[item.Id] = item;
                 registry.byName[item.Name] = item;
             }
@@ -56,6 +59,10 @@ namespace WhiteFox.Core.Data
         public Item Item;
         public int Count;
         public object Nbt;
+
+        /// <summary>Damage taken (NBT "Damage"); the durability bar shows when it is above 0 and the item is not unbreakable.</summary>
+        public int Damage => Network.Nbt.GetInt(Nbt, "Damage");
+        public bool ShowsDurability => Item != null && Item.MaxDurability > 0 && Damage > 0 && Network.Nbt.GetInt(Nbt, "Unbreakable") == 0;
 
         public override string ToString() => Count > 1 ? Count + "x " + Item : Item?.ToString();
     }

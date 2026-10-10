@@ -62,7 +62,7 @@ namespace WhiteFox.Client.Entities
         public static EntityModel Create(string type, bool slim, int variant, int[] villager)
         {
             // the entity data only carries values that differ from the default: cats default to black, the rest to 0
-            if (variant < 0) variant = type == "cat" ? 1 : 0;
+            if (variant < 0) variant = type == "cat" ? 1 : type == "shulker" ? 16 : 0;
             if (type == "tropical_fish") return TropicalFishVariant(variant);
             var model = Create(type, slim);
             if (model == null) return null;
@@ -97,6 +97,11 @@ namespace WhiteFox.Client.Entities
                     break;
                 case "mooshroom":
                     Texture(model, variant == 1 ? "entity/cow/brown_mooshroom" : "entity/cow/red_mooshroom");
+                    break;
+                case "panda":
+                case "shulker":
+                case "strider":
+                    MobVariant(model, type, variant);
                     break;
                 case "villager":
                 case "zombie_villager":

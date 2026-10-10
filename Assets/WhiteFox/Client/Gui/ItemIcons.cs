@@ -109,6 +109,21 @@ namespace WhiteFox.Client.Gui
             GUI.DrawTexture(rect, entry.overlay);
         }
 
+        /// <summary>
+        /// The durability bar under a damaged item (vanilla GuiGraphics.renderItemDecorations): 13 pixels, from green
+        /// to red as it wears, on a black background.
+        /// </summary>
+        public static void DrawDurability(GuiRenderer gui, Rect slot, ItemStack stack)
+        {
+            if (stack == null || !stack.ShowsDurability || !gui.Repaint) return;
+            var max = stack.Item.MaxDurability;
+            var left = Mathf.Clamp01((max - stack.Damage) / (float)max);
+            var width = Mathf.Round(13 - stack.Damage * 13f / max);
+            var color = Color.HSVToRGB(left / 3, 1, 1);
+            gui.Fill(new Rect(slot.x + 2, slot.y + 13, 13, 2), Color.black);
+            gui.Fill(new Rect(slot.x + 2, slot.y + 13, Mathf.Max(0, width), 1), color);
+        }
+
         /// <summary>Icon of a stack: banners and shields with patterns get their own icon, other items the one of the name.</summary>
         public Texture Get(ItemStack stack)
         {

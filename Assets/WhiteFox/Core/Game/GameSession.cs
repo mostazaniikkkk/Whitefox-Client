@@ -336,6 +336,39 @@ namespace WhiteFox.Core.Game
         private static float MobPitch(Entity entity) => (float)(SoundRandom.NextDouble() - SoundRandom.NextDouble()) * 0.2f + (entity.Baby ? 1.5f : 1.0f);
 
         /// <summary>Footsteps of the own player (vanilla Entity.move: one step per block of moveDist).</summary>
+        private long lastUseTick = -100;
+        private string lastHeld;
+
+        /// <summary>
+        /// Buckets (vanilla BucketItem: Player.playSound, which the server sends to everybody except the user): when a
+        /// right click turns the held bucket into a filled one or back, the fill / empty sound of its content.
+        /// </summary>
+        private void TickBucketSounds()
+        {
+            var held = Inventory.Player.Slots[36 + SelectedSlot]?.Item?.Name.Path;
+            var before = lastHeld;
+            lastHeld = held;
+            if (held == before || Ticks - lastUseTick > 10 || before == null || held == null) return;
+            string sound = null;
+            if (before == "bucket" && held == "milk_bucket") sound = "entity.cow.milk";
+            else if (before == "bucket" && held.EndsWith("_bucket")) sound = "item.bucket.fill" + BucketSuffix(held);
+            else if (held == "bucket" && before.EndsWith("_bucket")) sound = "item.bucket.empty" + BucketSuffix(before);
+            if (sound != null) PlaySound(sound, Player.EyePosition, 1, 1, SoundCategory.Player);
+        }
+
+        private static string BucketSuffix(string bucket)
+        {
+            switch (bucket)
+            {
+                case "lava_bucket": return "_lava";
+                case "powder_snow_bucket": return "_powder_snow";
+                case "axolotl_bucket": return "_axolotl";
+                case "tadpole_bucket": return "_tadpole";
+                case "water_bucket": return "";
+                default: return bucket.EndsWith("_bucket") && bucket != "milk_bucket" ? "_fish" : "";
+            }
+        }
+
         private bool wasInWater;
         private float swimDistance;
         private float nextSwim;
@@ -526,6 +559,7 @@ namespace WhiteFox.Core.Game
             else Physics.Tick();
             if (!IsRemote) TickLocalAir();
             TickSteps();
+            TickBucketSounds();
             TickGliding();
             TickEntityItemUse();
             if (!Player.Riding) movement?.Tick();
@@ -640,6 +674,7 @@ namespace WhiteFox.Core.Game
             if (Input.UsePressed) useCooldown = 0;
             if (!Input.UseHeld || useCooldown != 0) return;
             useCooldown = 4;
+            lastUseTick = Ticks;
 
             var target = Target;
             if (target.HasValue)
@@ -848,6 +883,26 @@ namespace WhiteFox.Core.Game
         // ------------------------------------------------------------------ entities
 
         /// <summary>Entity data index of the texture variant of a type (1.20.4), -1 without one.</summary>
+        /// <summary>The panda texture: brown and weak are recessive and only show when both genes are the same.</summary>
+        private static int PandaVariant(Entity panda)
+        {
+            var gene = panda.MainGene;
+            if ((gene == 4 || gene == 5) && panda.HiddenGene != gene) return 0;
+            return gene >= 0 && gene < 7 ? gene : 0;
+        }
+
+        /// <summary>Entity Event 4 on evoker fangs: the bite starts.</summary>
+        public void OnEntityAttack(int id)
+        {
+            if (Entities.Entities.TryGetValue(id, out var entity)) entity.AttackStart = entity.Age;
+        }
+
+        /// <summary>Link Entities: a lead from a mob to its holder (-1: no lead).</summary>
+        public void OnLeash(int attached, int holder)
+        {
+            if (Entities.Entities.TryGetValue(attached, out var entity)) entity.LeashHolder = holder == 0 ? -1 : holder;
+        }
+
         private static int VariantIndex(string path)
         {
             switch (path)
@@ -930,8 +985,44 @@ namespace WhiteFox.Core.Game
                     case 9 when path == "firework_rocket" && pair.Value is int attached:
                         entity.AttachedTo = attached;
                         break;
-                    case 18 when path == "strider" && pair.Value is bool striderSaddle:
+                    // Strider: 17 boost time, 18 cold (suffocating outside lava), 19 saddle
+                    case 19 when path == "strider" && pair.Value is bool striderSaddle:
                         entity.Saddled = striderSaddle;
+                        break;
+                    case 18 when path == "strider" && pair.Value is bool cold:
+                        entity.Variant = cold ? 1 : 0;
+                        break;
+                    case 16 when path == "phantom" && pair.Value is int phantomSize:
+                        entity.PhantomSize = phantomSize;
+                        break;
+                    case 17 when path == "shulker" && pair.Value is byte peek:
+                        entity.Peek = peek;
+                        break;
+                    case 18 when path == "shulker" && pair.Value is byte shulkerColor:
+                        entity.Variant = shulkerColor;
+                        break;
+                    case 20 when path == "panda" && pair.Value is byte mainGene:
+                        entity.MainGene = mainGene;
+                        entity.Variant = PandaVariant(entity);
+                        break;
+                    case 21 when path == "panda" && pair.Value is byte hiddenGene:
+                        entity.HiddenGene = hiddenGene;
+                        entity.Variant = PandaVariant(entity);
+                        break;
+                    case 8 when path == "tnt" && pair.Value is int fuse:
+                        entity.Fuse = fuse;
+                        break;
+                    case 9 when path == "tnt" && pair.Value is int tntBlock:
+                        entity.FallingBlock = Resources.Blocks.GetState(tntBlock);
+                        break;
+                    case 8 when path == "wither_skull" && pair.Value is bool dangerous:
+                        entity.Dangerous = dangerous;
+                        break;
+                    case 9 when path == "end_crystal" && pair.Value is bool bottom:
+                        entity.ShowBottom = bottom;
+                        break;
+                    case 8 when path == "fishing_bobber" && pair.Value is int hooked:
+                        entity.Hooked = hooked - 1;
                         break;
                     case 15 when path == "armor_stand" && pair.Value is byte standFlags:
                         entity.StandFlags = standFlags;

@@ -112,14 +112,38 @@ namespace WhiteFox.Client
         }
 
         /// <summary>Switches every section to other materials (classic / realistic rendering).</summary>
+        /// <summary>Which of the opaque / translucent / water parts each section has (bits 0, 1, 2).</summary>
+        private readonly Dictionary<SectionPos, int> parts = new Dictionary<SectionPos, int>();
+        private readonly Dictionary<int, Material[]> partMaterials = new Dictionary<int, Material[]>();
+
+        /// <summary>
+        /// The materials of a section: only those of its non-empty parts. An empty submesh still costs a draw call, and
+        /// the water material between the translucent ones of every section (sorted back to front) kept the batches
+        /// from merging, which was most of the cost of the realistic water.
+        /// </summary>
+        private Material[] MaterialsFor(int mask)
+        {
+            if (partMaterials.TryGetValue(mask, out var list)) return list;
+            var result = new List<Material>();
+            for (var i = 0; i < 3; i++)
+            {
+                if ((mask & (1 << i)) != 0) result.Add(materials[i]);
+            }
+            list = result.ToArray();
+            partMaterials[mask] = list;
+            return list;
+        }
+
         public void SetMaterials(Material[] materials, bool castShadows)
         {
             this.materials = materials;
             this.castShadows = castShadows;
-            foreach (var section in sections.Values)
+            partMaterials.Clear();
+            foreach (var pair in sections)
             {
+                var section = pair.Value;
                 var renderer = section.GetComponent<MeshRenderer>();
-                renderer.sharedMaterials = materials;
+                renderer.sharedMaterials = MaterialsFor(parts.TryGetValue(pair.Key, out var mask) ? mask : 7);
                 renderer.shadowCastingMode = castShadows ? ShadowCastingMode.On : ShadowCastingMode.Off;
             }
             cullCamera = null; // apply the shadow modes of hidden sections again
@@ -347,7 +371,6 @@ namespace WhiteFox.Client
                 gameObject.transform.localPosition = SectionOrigin(data.Position);
                 graphsChanged = true;
                 var renderer = gameObject.GetComponent<MeshRenderer>();
-                renderer.sharedMaterials = materials;
                 renderer.shadowCastingMode = castShadows ? ShadowCastingMode.On : ShadowCastingMode.Off;
                 renderer.receiveShadows = true;
                 renderer.lightProbeUsage = LightProbeUsage.Off;
@@ -374,18 +397,42 @@ namespace WhiteFox.Client
             mesh.SetIndexBufferParams(indices.Length, IndexFormat.UInt32);
             mesh.SetIndexBufferData(indices, 0, 0, indices.Length, UploadFlags);
 
-            mesh.subMeshCount = 3;
+            // one submesh per non-empty part, with the matching materials
             var bounds = new Bounds(new Vector3(8, 8, -8), new Vector3(16, 16, 16));
-            mesh.SetSubMesh(0, new SubMeshDescriptor(0, opaque) { bounds = bounds, vertexCount = vertexCount }, UploadFlags);
-            mesh.SetSubMesh(1, new SubMeshDescriptor(opaque, translucent) { bounds = bounds, vertexCount = vertexCount }, UploadFlags);
-            mesh.SetSubMesh(2, new SubMeshDescriptor(opaque + translucent, water) { bounds = bounds, vertexCount = vertexCount }, UploadFlags);
+            var counts = new[] { opaque, translucent, water };
+            var mask = 0;
+            var submeshes = 0;
+            for (var i = 0; i < 3; i++)
+            {
+                if (counts[i] > 0)
+                {
+                    mask |= 1 << i;
+                    submeshes++;
+                }
+            }
+            mesh.subMeshCount = Mathf.Max(1, submeshes);
+            var start = 0;
+            var index = 0;
+            for (var i = 0; i < 3; i++)
+            {
+                if (counts[i] > 0) mesh.SetSubMesh(index++, new SubMeshDescriptor(start, counts[i]) { bounds = bounds, vertexCount = vertexCount }, UploadFlags);
+                start += counts[i];
+            }
+            if (submeshes == 0) mesh.SetSubMesh(0, new SubMeshDescriptor(0, 0) { bounds = bounds, vertexCount = vertexCount }, UploadFlags);
             mesh.bounds = bounds;
+            if (mask == 0) mask = 1;
+            if (!parts.TryGetValue(data.Position, out var previous) || previous != mask || gameObject.GetComponent<MeshRenderer>().sharedMaterials.Length != submeshes)
+            {
+                parts[data.Position] = mask;
+                gameObject.GetComponent<MeshRenderer>().sharedMaterials = MaterialsFor(mask);
+            }
         }
 
         private void Remove(SectionPos position)
         {
             if (!sections.TryGetValue(position, out var gameObject)) return;
             sections.Remove(position);
+            parts.Remove(position);
             UnityEngine.Object.Destroy(gameObject.GetComponent<MeshFilter>().sharedMesh);
             UnityEngine.Object.Destroy(gameObject);
         }

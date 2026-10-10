@@ -63,6 +63,25 @@ namespace WhiteFox.Core.Entities
         public int UsingHand;
         /// <summary>Guardians: swimming with the spikes pulled in (entity data 16); the spike animation 0 in .. 1 out.</summary>
         public bool Moving;
+        /// <summary>Phantoms: size (entity data 16), scale 1 + 0.15 * size.</summary>
+        public int PhantomSize;
+        /// <summary>Shulkers: how far the lid is open, 0 .. 100 (entity data 17).</summary>
+        public int Peek;
+        /// <summary>The lid position the client shows (moves towards <see cref="Peek"/> smoothly).</summary>
+        public float PeekClient;
+        /// <summary>Panda genes (entity data 20 / 21): the texture shows the main gene, recessive ones only when doubled.</summary>
+        public int MainGene;
+        public int HiddenGene;
+        /// <summary>Primed TNT: ticks left (entity data 8) and its block (9); evoker fangs: the tick the bite started.</summary>
+        public int Fuse = 80;
+        public int AttackStart = -1;
+        /// <summary>Wither skulls: the blue, dangerous kind (8); end crystals: the bedrock base is drawn (9).</summary>
+        public bool Dangerous;
+        public bool ShowBottom = true;
+        /// <summary>Fishing bobbers: the hooked entity (entity data 8), or -1.</summary>
+        public int Hooked = -1;
+        /// <summary>Leashed mobs: the entity holding the lead (Link Entities), or -1.</summary>
+        public int LeashHolder = -1;
         public float Spikes = 1;
         public int UseTicks;
         /// <summary>Villager data (type, profession, level) of villagers and zombie villagers.</summary>

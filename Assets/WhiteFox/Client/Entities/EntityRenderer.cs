@@ -18,7 +18,7 @@ namespace WhiteFox.Client.Entities
     /// with vanilla animations, dropped items, experience orbs, falling blocks and hitboxes for everything without a
     /// model. Minecraft space is converted to render space by negating z (conjugating every transform).
     /// </summary>
-    public sealed class EntityRenderer : IDisposable
+    public sealed partial class EntityRenderer : IDisposable
     {
         private static readonly Matrix4x4 Flip = Matrix4x4.Scale(new Vector3(1, 1, -1));
         private static readonly int LightId = Shader.PropertyToID("_Light");
@@ -86,6 +86,8 @@ namespace WhiteFox.Client.Entities
                 UpdateView(view, entity, partialTick);
             }
 
+            UpdateLeads(partialTick);
+
             // the own player, for the third person view
             UpdateLocalEntity(partialTick);
             if (ShowLocalPlayer)
@@ -140,9 +142,11 @@ namespace WhiteFox.Client.Entities
             public GameObject Root;
             public readonly List<Renderer> Renderers = new List<Renderer>();
             public readonly List<Mesh> OwnedMeshes = new List<Mesh>();
+            public readonly List<Material> OwnedMaterials = new List<Material>();
             public void Destroy()
             {
                 foreach (var mesh in OwnedMeshes) UnityEngine.Object.Destroy(mesh);
+                foreach (var material in OwnedMaterials) UnityEngine.Object.Destroy(material);
                 UnityEngine.Object.Destroy(Root);
             }
         }
@@ -170,6 +174,9 @@ namespace WhiteFox.Client.Entities
             public ItemModel ItemModel;
             public Transform ItemTransform;
             public Texture MapTexture;
+            /// <summary>Object renderers: their model parts and the fishing line.</summary>
+            public readonly List<Transform> Pieces = new List<Transform>();
+            public LineRenderer Line;
         }
 
         private static int VariantKey(Entity entity)
@@ -201,6 +208,7 @@ namespace WhiteFox.Client.Entities
                 return arrow;
             }
             if (Core.Game.GameSession.ThrownItems.Contains(path)) return new SimpleView { Root = rootObject, Kind = "thrown" };
+            if (ObjectKinds.Contains(path)) return CreateObject(entity, path, rootObject);
             if (path == "item_frame" || path == "glow_item_frame")
             {
                 var frame = new SimpleView { Root = rootObject, Kind = path };
@@ -557,7 +565,8 @@ namespace WhiteFox.Client.Entities
             }
             if (entity.Swimming || entity.PoseId == 1) matrix *= RotX(-(90 + entity.Pitch) * Mathf.Deg2Rad) * Matrix4x4.Translate(new Vector3(0, -1, 0.3f));
             var scale = view.Model.Scale * (entity.Baby ? 0.5f : 1) * (view.Model.Kind == ModelKind.Slime ? entity.SlimeSize : 1)
-                        * (view.Model.Kind == ModelKind.ArmorStand && (entity.StandFlags & 0x01) != 0 ? 0.5f : 1);
+                        * (view.Model.Kind == ModelKind.ArmorStand && (entity.StandFlags & 0x01) != 0 ? 0.5f : 1)
+                        * (view.Model.Kind == ModelKind.Phantom ? 1 + 0.15f * entity.PhantomSize : 1);
             matrix *= Matrix4x4.Scale(new Vector3(-1, -1, 1)) * Matrix4x4.Scale(Vector3.one * scale) * Matrix4x4.Translate(view.Model.Offset) * Matrix4x4.Translate(new Vector3(0, -1.501f, 0));
             Apply(view.Root.transform, matrix);
 
@@ -565,7 +574,7 @@ namespace WhiteFox.Client.Entities
             if (view.Root.transform.childCount > 1)
             {
                 var path = entity.Type?.Name.Path;
-                var second = path == "sheep" ? (entity.SheepWool & 0x10) == 0 : path != "pig" || entity.Saddled;
+                var second = path == "sheep" ? (entity.SheepWool & 0x10) == 0 : path == "pig" || path == "strider" ? entity.Saddled : true;
                 var layer = view.Root.transform.GetChild(1).gameObject;
                 if (layer.activeSelf != second) layer.SetActive(second);
             }
@@ -744,6 +753,119 @@ namespace WhiteFox.Client.Entities
                 case ModelKind.Fish:
                     Rotate("tail_fin", 0, -0.45f * Mathf.Sin(0.6f * age), 0);
                     break;
+                case ModelKind.Allay:
+                {
+                    // AllayModel / VexModel: the wings beat, the head looks
+                    Rotate("head", pitch, relativeHead, 0);
+                    var beat = Cos(age * 20 * Mathf.Deg2Rad + limbSwing) * Mathf.PI * 0.15f;
+                    Rotate("right_wing", 0.43633232f, -Mathf.PI / 4 + beat, 0);
+                    Rotate("left_wing", 0.43633232f, Mathf.PI / 4 - beat, 0);
+                    Rotate("right_arm", 0, 0, -Mathf.PI / 8);
+                    Rotate("left_arm", 0, 0, Mathf.PI / 8);
+                    break;
+                }
+                case ModelKind.Segments:
+                {
+                    // EndermiteModel / SilverfishModel: the segments wiggle sideways
+                    var silverfish = entity.Type?.Name.Path == "silverfish";
+                    var count = silverfish ? 7 : 4;
+                    var turn = silverfish ? 0.05f : 0.01f;
+                    var sway = silverfish ? 0.2f : 0.1f;
+                    for (var i = 0; i < count; i++)
+                    {
+                        var phase = age * 0.9f + i * 0.15f * Mathf.PI;
+                        Rotate("segment" + i, 0, Cos(phase) * Mathf.PI * turn * (1 + Mathf.Abs(i - 2)), 0);
+                        if (view.Parts.TryGetValue("segment" + i, out var segment))
+                        {
+                            var pivot = segment[0].Value.Pivot;
+                            PosePivot["segment" + i] = new Vector3(Mathf.Sin(phase) * Mathf.PI * sway * Mathf.Abs(i - 2), pivot.y, pivot.z);
+                        }
+                    }
+                    if (silverfish)
+                    {
+                        // the fur follows segments 2, 4 and 1
+                        foreach (var (fur, segment) in new[] { ("layer0", 2), ("layer1", 4), ("layer2", 1) })
+                        {
+                            if (!view.Parts.TryGetValue(fur, out var parts) || !PosePivot.TryGetValue("segment" + segment, out var moved)) continue;
+                            PoseRotation[fur] = PoseRotation["segment" + segment];
+                            PosePivot[fur] = new Vector3(moved.x, parts[0].Value.Pivot.y, parts[0].Value.Pivot.z);
+                        }
+                    }
+                    break;
+                }
+                case ModelKind.Phantom:
+                {
+                    // PhantomModel: wings flap, the tail follows (the rest pose has the wings at z +-0.1)
+                    var beatPhase = (entity.Id * 3 + age) * 7.448451f * Mathf.Deg2Rad;
+                    var wing = Cos(beatPhase) * 16 * Mathf.Deg2Rad;
+                    Rotate("left_wing_base", 0, 0, wing - 0.1f);
+                    Rotate("left_wing_tip", 0, 0, wing - 0.1f);
+                    Rotate("right_wing_base", 0, 0, -wing + 0.1f);
+                    Rotate("right_wing_tip", 0, 0, -wing + 0.1f);
+                    var tail = -(5 + Cos(beatPhase * 2) * 5) * Mathf.Deg2Rad;
+                    Rotate("tail_base", tail, 0, 0);
+                    Rotate("tail_tip", tail, 0, 0);
+                    break;
+                }
+                case ModelKind.Hoglin:
+                {
+                    if (entity.Type?.Name.Path == "ravager")
+                    {
+                        // RavagerModel: the head looks, the legs swing
+                        Rotate("head", pitch, relativeHead, 0);
+                        var step = 0.4f * amount;
+                        Rotate("right_hind_leg", Cos(limbSwing * walk) * step, 0, 0);
+                        Rotate("left_hind_leg", Cos(limbSwing * walk + Mathf.PI) * step, 0, 0);
+                        Rotate("right_front_leg", Cos(limbSwing * walk + Mathf.PI) * step, 0, 0);
+                        Rotate("left_front_leg", Cos(limbSwing * walk) * step, 0, 0);
+                    }
+                    else
+                    {
+                        // HoglinModel: the head turns (its pitch is fixed), the ears wobble, the legs swing
+                        Rotate("head", 0, relativeHead, 0);
+                        Rotate("right_ear", 0, 0, -0.1f * Cos(limbSwing * 0.6f) * amount);
+                        Rotate("left_ear", 0, 0, 0.1f * Cos(limbSwing * 0.6f) * amount);
+                        var front = Cos(limbSwing) * 1.2f * amount;
+                        var back = Cos(limbSwing + Mathf.PI) * 1.2f * amount;
+                        Rotate("right_front_leg", front, 0, 0);
+                        Rotate("left_front_leg", back, 0, 0);
+                        Rotate("right_hind_leg", back, 0, 0);
+                        Rotate("left_hind_leg", front, 0, 0);
+                    }
+                    break;
+                }
+                case ModelKind.Strider:
+                {
+                    // StriderModel: the body is the head, long legs step, the bristles wave
+                    Rotate("body", pitch, relativeHead, 0);
+                    var stride = Mathf.Min(amount, 0.25f);
+                    Rotate("right_leg", Mathf.Sin(limbSwing * 0.5f) * 2 * stride, 0, 0.17453292f * Cos(limbSwing * 0.5f) * stride);
+                    Rotate("left_leg", Mathf.Sin(limbSwing * 0.5f + Mathf.PI) * 2 * stride, 0, 0.17453292f * Cos(limbSwing * 0.5f + Mathf.PI) * stride);
+                    var wave = Mathf.Sin(age * 0.4f) * 0.1f + amount * 0.2f;
+                    foreach (var side in new[] { "top", "middle", "bottom" })
+                    {
+                        Rotate("right_" + side + "_bristle", 0, 0, -wave);
+                        Rotate("left_" + side + "_bristle", 0, 0, wave);
+                    }
+                    break;
+                }
+                case ModelKind.Shulker:
+                {
+                    // ShulkerModel: the lid rises (and turns a little) with the peek amount, the head looks out
+                    entity.PeekClient = Mathf.MoveTowards(entity.PeekClient, entity.Peek / 100f, Time.deltaTime);
+                    var f1 = (0.5f + entity.PeekClient) * Mathf.PI;
+                    var f2 = -1 + Mathf.Sin(f1);
+                    var shake = f1 > Mathf.PI ? Mathf.Sin(age * 0.1f) * 0.7f : 0;
+                    PosePivot["lid"] = new Vector3(0, 16 + Mathf.Sin(f1) * 8 + shake, 0);
+                    Rotate("lid", 0, entity.PeekClient > 0.3f ? f2 * f2 * f2 * f2 * Mathf.PI * 0.125f : 0, 0);
+                    Rotate("head", pitch, relativeHead, 0);
+                    break;
+                }
+                case ModelKind.Breeze:
+                    // BreezeModel: the rods circle the body, the head looks
+                    Rotate("rods", 0, age * Mathf.PI * -0.1f, 0);
+                    Rotate("head", pitch, relativeHead, 0);
+                    break;
                 case ModelKind.Guardian:
                 {
                     // GuardianModel.setupAnim: spikes in while swimming (Guardian.aiStep spike animation), tail wave
@@ -865,6 +987,11 @@ namespace WhiteFox.Client.Entities
 
         private void UpdateSimple(SimpleView view, Entity entity, Vec3d position, float partial)
         {
+            if (ObjectKinds.Contains(view.Kind))
+            {
+                UpdateObject(view, entity, position, partial);
+                return;
+            }
             var path = view.Kind;
             switch (path)
             {
@@ -1429,6 +1556,13 @@ namespace WhiteFox.Client.Entities
         public void Dispose()
         {
             session.Entities.Removed -= OnRemoved;
+            foreach (var lead in leads.Values)
+            {
+                if (lead != null) UnityEngine.Object.Destroy(lead.gameObject);
+            }
+            leads.Clear();
+            foreach (var material in lineMaterials.Values) UnityEngine.Object.Destroy(material);
+            lineMaterials.Clear();
             foreach (var view in views.Values) view.Destroy();
             views.Clear();
             localView?.Destroy();

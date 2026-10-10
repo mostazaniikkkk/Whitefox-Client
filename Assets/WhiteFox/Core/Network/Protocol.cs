@@ -195,6 +195,7 @@ namespace WhiteFox.Core.Network
             public const int SetHealth = 0x5B;
             public const int SetExperience = 0x5A;
             public const int SetEntityMetadata = 0x56;
+            public const int LinkEntities = 0x57;
             public const int EntityEffect = 0x72;
             public const int RemoveEntityEffect = 0x41;
             public const int CombatDeath = 0x3A;

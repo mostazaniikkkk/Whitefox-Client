@@ -8,7 +8,6 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using WhiteFox.Client.Entities;
 using WhiteFox.Client.Gui;
-using WhiteFox.Core.Accounts;
 using WhiteFox.Core.Game;
 using WhiteFox.Core.Meshing;
 using WhiteFox.Core.Network;
@@ -52,13 +51,9 @@ namespace WhiteFox.Client
             Quality,
             Sounds,
             ResourcePacks,
-            Accounts,
         }
         private Overlay overlay;
-        private readonly AccountsScreen accountsScreen = new AccountsScreen();
-        /// <summary>Saved accounts (accounts.toml, tokens encrypted for the Windows user).</summary>
-        private AccountStore accounts;
-        /// <summary>Shown while a Microsoft account renews its session before joining.</summary>
+        /// <summary>Shown while the server address is resolved before joining.</summary>
         private string loginMessage;
         private readonly ControlsScreen controls = new ControlsScreen();
         private readonly ChatInput chat = new ChatInput();
@@ -103,17 +98,11 @@ namespace WhiteFox.Client
             };
             Application.targetFrameRate = -1;
             Settings = new Settings();
-            accounts = new AccountStore(System.IO.Path.Combine(Application.persistentDataPath, "accounts.toml")) { Protect = TokenProtection.Protect, Unprotect = TokenProtection.Unprotect };
-            accounts.Load();
-            RefreshSelectedAccount();
             input = new PlayerInputReader(Settings);
             TouchControls.Simulated = CommandLine.Has("-wf-touch");
             input.Touch = new TouchControls(Settings);
-            if (Application.isMobilePlatform)
-            {
-                Application.targetFrameRate = 60;
-                Screen.sleepTimeout = SleepTimeout.NeverSleep;
-            }
+            Settings.ApplyFrameRate();
+            if (Application.isMobilePlatform) Screen.sleepTimeout = SleepTimeout.NeverSleep;
             if (CommandLine.Has("-wf-acceptpacks")) Settings.ServerPacks = 1;
 
             var cache = Path.Combine(Application.persistentDataPath, "cache");
@@ -136,7 +125,9 @@ namespace WhiteFox.Client
             textures = new BlockTextureArray(resources.Textures);
             CreateMaterials();
             // screenshot runs (-wf-classic, -wf-nohud, ...) never write the user's config.toml
-            if (CommandLine.Has("-wf-screenshot")) Settings.Persist = false;
+            if (CommandLine.Has("-wf-screenshot") || CommandLine.Has("-wf-bench")) Settings.Persist = false;
+            var overrides = CommandLine.Get("-wf-set");
+            if (overrides != null) Settings.Override(overrides);
             if (CommandLine.Has("-wf-classic")) Settings.Graphics = GraphicsMode.Classic;
             if (CommandLine.Has("-wf-modern")) Settings.Graphics = GraphicsMode.Modern;
 
@@ -161,7 +152,7 @@ namespace WhiteFox.Client
             status = null;
 
             var connect = CommandLine.Get("-wf-connect");
-            if (connect != null) Connect(connect, Account.Offline(CommandLine.Get("-wf-name") ?? "WhiteFox"));
+            if (connect != null) Connect(connect, CommandLine.Get("-wf-name") ?? "WhiteFox");
             else if ((CommandLine.Has("-wf-screenshot") && !CommandLine.Has("-wf-title")) || CommandLine.Has("-wf-local")) StartLocal();
 
             if (CommandLine.Has("-wf-inventory") || CommandLine.Has("-wf-chat")) StartCoroutine(OpenInventoryWhenSpawned());
@@ -170,7 +161,6 @@ namespace WhiteFox.Client
             else if (screen == "controls") overlay = Overlay.Controls;
             else if (screen == "quality") overlay = Overlay.Quality;
             else if (screen == "sounds") overlay = Overlay.Sounds;
-            else if (screen == "accounts") overlay = Overlay.Accounts;
             else if (screen == "packs") OpenResourcePacks();
 
             var screenshot = CommandLine.Get("-wf-screenshot");
@@ -185,58 +175,12 @@ namespace WhiteFox.Client
             session.Prepare();
         }
 
-        /// <summary>The selected Microsoft account, or null when joining with the offline name.</summary>
-        private Account MicrosoftAccount => accounts.Selected is Account selected && selected.IsOnline ? selected : null;
-
-        /// <summary>
-        /// Renews the Minecraft session of the selected Microsoft account in the background at start, so the refresh
-        /// token keeps rotating and joining later does not wait; failures only show when joining.
-        /// </summary>
-        private async void RefreshSelectedAccount()
+        private async void Connect(string address, string username)
         {
-            var account = MicrosoftAccount;
-            var clientId = MicrosoftAuth.ClientId(Settings.MicrosoftClientId);
-            if (account == null || account.HasValidToken || clientId == null) return;
-            try
-            {
-                await new MicrosoftAuth(clientId).RefreshAsync(account);
-            }
-            catch (Exception exception)
-            {
-                Debug.LogWarning("WhiteFox: can not renew the session of " + account.Name + ": " + exception.Message);
-            }
-            accounts.Save();
-        }
-
-        private async void Connect(string address, Account account)
-        {
-            if (account.IsOnline && !account.HasValidToken)
-            {
-                var clientId = MicrosoftAuth.ClientId(Settings.MicrosoftClientId);
-                if (clientId == null)
-                {
-                    disconnectMessage = "Microsoft sign-in is not available in this build yet.";
-                    return;
-                }
-                loginMessage = "Signing in as " + account.Name + "...";
-                try
-                {
-                    await new MicrosoftAuth(clientId).RefreshAsync(account);
-                }
-                catch (Exception exception)
-                {
-                    loginMessage = null;
-                    accounts.Save();
-                    disconnectMessage = exception is AuthException ? exception.Message : "Could not sign in: " + exception.Message;
-                    return;
-                }
-                loginMessage = null;
-                accounts.Save();
-            }
             loginMessage = "Resolving " + address + "...";
             var (host, port) = await ServerAddress.ResolveAsync(address);
             loginMessage = null;
-            var server = new ServerSession(host, port, account, resources.Blocks, resources.Items, resources.EntityTypes) { ViewDistance = Settings.ViewDistance };
+            var server = new ServerSession(host, port, username, resources.Blocks, resources.Items, resources.EntityTypes) { ViewDistance = Settings.ViewDistance };
             var session = new GameSession(resources, Settings.ViewDistance, server) { NetworkBudget = 4 };
             StartSession(session);
             try
@@ -255,6 +199,7 @@ namespace WhiteFox.Client
             Renderer = new WorldRenderer(session.World, new SectionMesher(resources.Colors, resources.Fluids), Modern ? realisticMaterials : classicMaterials, Modern, transform);
             outline = new BlockOutline(transform);
             lightSources = new LightSourceManager(session.World, transform);
+            lightSources.SectionVisible = position => Renderer == null || Renderer.IsVisible(position);
             CreateSessionRenderers();
             session.Sound += OnSound;
             session.Particle += request => particles.Spawn(request);
@@ -332,6 +277,27 @@ namespace WhiteFox.Client
                 yield return null;
             }
             for (var i = 0; i < 60; i++) yield return null;
+            var bench = CommandLine.Get("-wf-bench");
+            if (bench != null)
+            {
+                // frame times without vsync, over the given seconds
+                QualitySettings.vSyncCount = 0;
+                Application.targetFrameRate = -1;
+                for (var i = 0; i < 30; i++) yield return null;
+                var seconds = float.Parse(bench, System.Globalization.CultureInfo.InvariantCulture);
+                var times = new System.Collections.Generic.List<float>();
+                var start = Time.realtimeSinceStartup;
+                while (Time.realtimeSinceStartup - start < seconds)
+                {
+                    yield return null;
+                    times.Add(Time.unscaledDeltaTime * 1000);
+                }
+                times.Sort();
+                var average = 0f;
+                foreach (var t in times) average += t;
+                average /= Mathf.Max(1, times.Count);
+                Debug.Log($"Benchmark: {1000 / average:0.0} fps, {average:0.00} ms average, {times[times.Count / 2]:0.00} ms median, {times[(int)(times.Count * 0.99f)]:0.00} ms p99, {Renderer.SectionCount} sections, {lightSources.SourceCount} light sources");
+            }
             yield return new WaitForEndOfFrame();
             var texture = ScreenCapture.CaptureScreenshotAsTexture();
             File.WriteAllBytes(path, texture.EncodeToPNG());
@@ -396,6 +362,7 @@ namespace WhiteFox.Client
             lightSources.Enabled = Modern && Settings.BlockLights > 0;
             lightSources.MaxLights = new[] { 0, 16, 48, 96 }[Mathf.Clamp(Settings.BlockLights, 0, 3)];
             lightSources.ShadowedLights = Settings.BlockLightShadows;
+            Shader.SetGlobalFloat("_WF_WaterReflectionSteps", Settings.WaterReflections == 0 ? 0 : Settings.WaterReflections == 1 ? 20 : 40);
             Shader.SetGlobalFloat("_WF_ModernEntities", Modern ? 1 : 0);
             entityRenderer.CastShadows = Modern && Settings.SunShadows > 0;
             blockEntityRenderer.CastShadows = entityRenderer.CastShadows;
@@ -511,6 +478,37 @@ namespace WhiteFox.Client
             touch.OpenInventory = touch.OpenChat = touch.TogglePerspective = touch.Pause = false;
         }
 
+        /// <summary>
+        /// Esc like vanilla: an options screen goes back (to the options, then to the game or the title), an open
+        /// inventory or container closes, the pause menu resumes; only while playing does it open the pause menu
+        /// (PlayerInputReader). Chat, signs and books close themselves.
+        /// </summary>
+        private void HandleEscape()
+        {
+            if (packOffers.Count > 0 || chat.Open || textScreens.Open) return;
+            if (overlay != Overlay.None)
+            {
+                Settings.Save();
+                overlay = overlay == Overlay.Options ? Overlay.None : Overlay.Options;
+                input.EscapeConsumedFrame = Time.frameCount;
+                return;
+            }
+            if (Session == null || !Session.Spawned || Session.Dead) return;
+            if (Session.Inventory.AnyOpen)
+            {
+                Session.Inventory.Close();
+                input.SetCursorLocked(true);
+                input.EscapeConsumedFrame = Time.frameCount;
+                return;
+            }
+            if (!input.CursorLocked)
+            {
+                // the pause menu is open: back to the game
+                input.SetCursorLocked(true);
+                input.EscapeConsumedFrame = Time.frameCount;
+            }
+        }
+
         /// <summary>E opens the inventory, E or Esc close it; windows opened by the server free the mouse.</summary>
         private void UpdateInventoryKeys()
         {
@@ -520,7 +518,7 @@ namespace WhiteFox.Client
             if (inventory.AnyOpen)
             {
                 var creativeSearch = inventory.Open == null && (!Session.IsRemote || Session.Player.Gamemode == Core.Physics.Gamemode.Creative) || inventoryScreen.TypingText;
-                if (keyboard.escapeKey.wasPressedThisFrame || (!creativeSearch && Settings.Inventory.WasPressed(keyboard)))
+                if (!creativeSearch && Settings.Inventory.WasPressed(keyboard))
                 {
                     inventory.Close();
                     input.SetCursorLocked(true);
@@ -611,13 +609,22 @@ namespace WhiteFox.Client
         private void Update()
         {
             UpdateFullscreenKey();
+            // the 3D view renders at the chosen fraction of the window; URP upscales it, the GUI is drawn on top at full size
+            if (GraphicsSettings.currentRenderPipeline is UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset pipeline && Mathf.Abs(pipeline.renderScale - Settings.RenderScale) > 0.001f)
+            {
+                pipeline.renderScale = Settings.RenderScale;
+            }
             if (reloading)
             {
                 Session?.ProcessNetwork(6);
                 return;
             }
             sounds?.Update(Session != null && Session.Spawned ? Session : null);
+            // Esc while a key is being rebound only cancels the rebinding
+            var keyboard = UnityEngine.InputSystem.Keyboard.current;
+            var escape = keyboard != null && keyboard.escapeKey.wasPressedThisFrame && controls.Waiting == null;
             controls.Capture();
+            if (escape) HandleEscape();
             if (Session == null)
             {
                 UpdateTitleBackground();
@@ -689,13 +696,14 @@ namespace WhiteFox.Client
             blockEntityRenderer.Update(partialTick);
             particles.Render(viewCamera, partialTick);
             weather.RealisticSky = environment.Enabled;
+            weather.CloudsEnabled = !(environment.Enabled && environment.VolumetricClouds);
             weather.Render(Session, viewCamera, partialTick, Settings.ViewDistance);
             var cameraPosition = viewCamera.transform.position;
             dynamicLights.Update(Session, new Vec3d(cameraPosition.x + RenderOrigin.X, cameraPosition.y, -cameraPosition.z + RenderOrigin.Z), partialTick, lightSources);
             firstPerson.Update(partialTick, input.Perspective == 0 && !input.HideGui);
             Renderer.Update(viewCamera.transform.position);
             lightSources.Exposure = environment.Exposure;
-            lightSources.Update(viewCamera.transform.position, Time.time);
+            lightSources.Update(viewCamera.transform.position, Time.time, viewCamera);
             outline.Update(Session.Target);
             breakOverlay.Update(Session.DiggingProgress > 0 ? Session.Target?.Position : null, Session.DiggingProgress);
             if (Session.Dead && input.CursorLocked) input.SetCursorLocked(false);
@@ -830,7 +838,9 @@ namespace WhiteFox.Client
 
             // the realistic mode uses its own sky model; fog starts later because the atmosphere already fades
             environment.Rain = overworldWeather ? rain : 0;
+            environment.Outdoors = (Session.World.GetLight((int)Math.Floor(eye.X), (int)Math.Floor(eye.Y), (int)Math.Floor(eye.Z)) >> 4) / 15f;
             environment.Thunder = overworldWeather ? Session.World.ThunderLevel : 0;
+            environment.ViewDirection = viewCamera.transform.forward;
             if (environment.Enabled) environment.Update(Session.World.TimeOfDay, bossFog ? fogStart : Settings.ViewDistance * 16 * 0.55f, bossFog ? fogEnd : Settings.ViewDistance * 16);
 
             // night vision lights everything up (vanilla: full brightness lightmap)
@@ -893,16 +903,13 @@ namespace WhiteFox.Client
                     MessageScreen.Draw(gui, "Joining Server", loginMessage, null);
                     return;
                 }
-                switch (title.Draw(gui, null, MicrosoftAccount))
+                switch (title.Draw(gui, null))
                 {
                     case TitleScreen.Action.Connect:
-                        Connect(title.AddressText, MicrosoftAccount ?? Account.Offline(title.UsernameText));
+                        Connect(title.AddressText, title.UsernameText);
                         break;
                     case TitleScreen.Action.Options:
                         overlay = Overlay.Options;
-                        break;
-                    case TitleScreen.Action.Accounts:
-                        overlay = Overlay.Accounts;
                         break;
                     case TitleScreen.Action.Quit:
                         Application.Quit();
@@ -970,11 +977,6 @@ namespace WhiteFox.Client
 
         private void DrawOverlay(bool overGame)
         {
-            if (overlay == Overlay.Accounts)
-            {
-                if (accountsScreen.Draw(gui, accounts, Settings, overGame)) overlay = Overlay.None;
-                return;
-            }
             if (overlay == Overlay.Controls)
             {
                 if (controls.Draw(gui, Settings, overGame)) overlay = Overlay.Options;
@@ -1024,7 +1026,6 @@ namespace WhiteFox.Client
         {
             // nothing is lost when the window is closed while an options screen is open
             Settings?.Save();
-            accounts?.Save();
         }
 
         private void OnDestroy()

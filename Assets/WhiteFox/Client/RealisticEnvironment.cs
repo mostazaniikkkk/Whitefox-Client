@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
@@ -30,6 +31,7 @@ namespace WhiteFox.Client
         private readonly Volume volume;
         private readonly VolumeProfile profile;
         private readonly Bloom bloom;
+        private readonly MotionBlur motionBlur;
         private float shadowDistance = -1;
         private int shadowCascades = -1;
         private bool sunShadows = true;
@@ -40,6 +42,44 @@ namespace WhiteFox.Client
         /// <summary>Rain (0..1) and thunder (0..1): an overcast sky, a hidden sun, soft light and closer grey fog.</summary>
         public float Rain;
         public float Thunder;
+        /// <summary>How much sky the camera sees (0 in caves): volumetric light only outdoors.</summary>
+        public float Outdoors = 1;
+        /// <summary>Ray march steps of the volumetric sun light, 0 off.</summary>
+        public int VolumetricSteps;
+        /// <summary>Volumetric clouds are drawn in the sky (the vanilla cloud boxes are hidden then).</summary>
+        public bool VolumetricClouds { get; private set; }
+        private Texture3D cloudNoise;
+        private Vector2 cloudWind;
+        private static readonly int CloudStepsId = Shader.PropertyToID("_WF_CloudSteps");
+        private static readonly int CloudLightStepsId = Shader.PropertyToID("_WF_CloudLightSteps");
+        private static readonly int CloudCoverageId = Shader.PropertyToID("_WF_CloudCoverage");
+        private static readonly int CloudWindId = Shader.PropertyToID("_WF_CloudWind");
+        private static readonly int CloudNoiseId = Shader.PropertyToID("_WF_CloudNoise");
+
+        private GameObject volumetric;
+        private Material volumetricMaterial;
+        private Mesh volumetricMesh;
+        private static readonly int VolumetricStepsId = Shader.PropertyToID("_WF_VolumetricSteps");
+        private static readonly int VolumetricStrengthId = Shader.PropertyToID("_WF_VolumetricStrength");
+
+        /// <summary>The full screen triangle that adds the volumetric light, a child of the camera.</summary>
+        private void EnsureVolumetric(Camera camera)
+        {
+            if (volumetric != null || camera == null) return;
+            volumetricMesh = new Mesh { name = "Volumetric light" };
+            volumetricMesh.SetVertices(new List<Vector3> { new Vector3(-1, -1, 0), new Vector3(3, -1, 0), new Vector3(-1, 3, 0) });
+            volumetricMesh.SetTriangles(new[] { 0, 1, 2 }, 0);
+            // never culled: the triangle is placed in clip space by the shader
+            volumetricMesh.bounds = new Bounds(Vector3.zero, Vector3.one * 100000);
+            volumetricMaterial = new Material(Resources.Load<Shader>("WhiteFox/Volumetric")) { name = "Volumetric light" };
+            volumetric = new GameObject("Volumetric light", typeof(MeshFilter), typeof(MeshRenderer));
+            volumetric.transform.SetParent(camera.transform, false);
+            volumetric.GetComponent<MeshFilter>().sharedMesh = volumetricMesh;
+            var renderer = volumetric.GetComponent<MeshRenderer>();
+            renderer.sharedMaterial = volumetricMaterial;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+        }
         public bool Enabled { get; private set; }
         public Light Sun => sun;
         /// <summary>Relative brightness of artificial lights: low at noon (the eye adapts to the sun), full at night.</summary>
@@ -71,6 +111,10 @@ namespace WhiteFox.Client
             colors.postExposure.Override(0.35f);
             colors.contrast.Override(10.0f);
             colors.saturation.Override(12.0f);
+            // camera motion blur (URP MotionBlur, camera mode): off unless chosen in the quality options
+            motionBlur = profile.Add<MotionBlur>(true);
+            motionBlur.mode.Override(MotionBlurMode.CameraOnly);
+            motionBlur.active = false;
             var vignette = profile.Add<Vignette>(true);
             vignette.intensity.Override(0.18f);
 
@@ -83,6 +127,17 @@ namespace WhiteFox.Client
         /// <summary>Applies the modern quality settings (sun shadows, bloom, post processing).</summary>
         public void ApplyQuality(Settings settings, Camera camera)
         {
+            VolumetricSteps = settings.VolumetricLight == 0 ? 0 : settings.VolumetricLight == 1 ? 10 : 20;
+            VolumetricClouds = settings.VolumetricClouds > 0;
+            if (VolumetricClouds && cloudNoise == null)
+            {
+                cloudNoise = CloudNoise.Create();
+                Shader.SetGlobalTexture(CloudNoiseId, cloudNoise);
+            }
+            Shader.SetGlobalFloat(CloudStepsId, settings.VolumetricClouds == 0 ? 0 : settings.VolumetricClouds == 1 ? 24 : 48);
+            Shader.SetGlobalFloat(CloudLightStepsId, settings.VolumetricClouds >= 2 ? 5 : 3);
+            if (VolumetricSteps > 0) EnsureVolumetric(camera);
+            else if (volumetric != null) volumetric.SetActive(false);
             sunShadows = settings.SunShadows > 0;
             if (GraphicsSettings.currentRenderPipeline is UniversalRenderPipelineAsset asset)
             {
@@ -96,6 +151,10 @@ namespace WhiteFox.Client
                 asset.shadowCascadeCount = settings.SunShadows <= 1 ? 2 : 4;
             }
             bloom.active = settings.Bloom;
+            motionBlur.active = settings.MotionBlur > 0;
+            motionBlur.intensity.Override(settings.MotionBlur >= 2 ? 0.6f : 0.25f);
+            motionBlur.quality.Override(settings.MotionBlur >= 2 ? MotionBlurQuality.High : MotionBlurQuality.Low);
+            motionBlur.clamp.Override(0.05f);
             volume.enabled = settings.PostProcessing;
             if (Enabled) camera.GetUniversalAdditionalCameraData().renderPostProcessing = settings.PostProcessing;
         }
@@ -115,6 +174,33 @@ namespace WhiteFox.Client
         }
 
         /// <summary>Sun position, colors and fog from the time of day (vanilla celestial angle, sun moves east to west).</summary>
+        /// <summary>WF_Atmosphere of WhiteFoxCommon.hlsl, for the fog color (the sky at the horizon where the camera looks).</summary>
+        private static Vector3 Atmosphere(Vector3 direction, Vector3 sunDirection)
+        {
+            var rayleigh = new Vector3(0.17f, 0.41f, 1.0f) * 0.6f;
+            var up = Mathf.Max(direction.y, 0);
+            var viewAir = 1 / (up + 0.25f);
+            var sunAir = 1 / (Mathf.Max(sunDirection.y, 0) + 0.12f);
+            var cosine = Vector3.Dot(direction, sunDirection);
+            var g = 0.8f;
+            var haze = (1 - g * g) / (4 * Mathf.PI * Mathf.Pow(Mathf.Max(1 + g * g - 2 * g * cosine, 1e-4f), 1.5f)) * (1 - Mathf.Exp(-0.12f * viewAir));
+            var result = Vector3.zero;
+            var hazeColor = new Vector3(1.0f, 0.95f, 0.85f);
+            var multipleColor = new Vector3(0.3f, 0.5f, 1.0f);
+            var low = Mathf.Clamp01(sunDirection.y * 3 + 0.35f);
+            for (var i = 0; i < 3; i++)
+            {
+                var sunlight = Mathf.Exp(-rayleigh[i] * Mathf.Max(sunAir - 0.9f, 0));
+                var air = 1 - Mathf.Exp(-rayleigh[i] * viewAir);
+                var scatter = air * (0.75f * (1 + cosine * cosine));
+                result[i] = sunlight * (scatter * 1.8f + haze * hazeColor[i] * 0.9f) + air * multipleColor[i] * 0.8f * low;
+            }
+            return result;
+        }
+
+        /// <summary>The direction the camera looks (for the fog color).</summary>
+        public Vector3 ViewDirection = Vector3.forward;
+
         public void Update(long timeOfDay, float fogStart, float fogEnd)
         {
             var time = timeOfDay / 24000.0;
@@ -152,6 +238,20 @@ namespace WhiteFox.Client
             sun.color = moon ? new Color(0.55f, 0.65f, 1.0f) : sunColor;
             sun.intensity = intensity;
             sun.shadows = intensity > 0.01f && sunShadows ? LightShadows.Soft : LightShadows.None;
+            // the clouds drift east like vanilla's (about 0.6 blocks per second), more of them in rain
+            cloudWind += new Vector2(-Time.deltaTime * 0.6f, 0);
+            cloudWind.x %= 4096;
+            Shader.SetGlobalVector(CloudWindId, new Vector4(cloudWind.x, 0, cloudWind.y, 0));
+            Shader.SetGlobalFloat(CloudCoverageId, Mathf.Lerp(0.5f, 0.92f, Mathf.Clamp01(Rain)));
+
+            // god rays need the sun shadow map; they fade in caves, in rain and at night
+            if (volumetric != null)
+            {
+                var active = VolumetricSteps > 0 && sunShadows && intensity > 0.01f;
+                if (volumetric.activeSelf != active) volumetric.SetActive(active);
+                Shader.SetGlobalFloat(VolumetricStepsId, VolumetricSteps);
+                Shader.SetGlobalFloat(VolumetricStrengthId, 0.6f * Mathf.Clamp01(Outdoors) * (1 - overcast * 0.8f) * (moon ? 0.35f : 1));
+            }
 
             Shader.SetGlobalVector(SunDirection, sunDirection);
             Shader.SetGlobalVector(SunColor, sunColor.linear * (SunIntensity * Mathf.Clamp01(elevation * 5.0f + 0.3f) * (1 - overcast * 0.85f)));
@@ -162,7 +262,14 @@ namespace WhiteFox.Client
             Exposure = Mathf.Lerp(1.0f, 0.2f, Mathf.Clamp01(elevation * 3.0f));
             Shader.SetGlobalFloat(AmbientStrength, Ambient * Mathf.Lerp(0.25f, 1.0f, day));
 
-            RenderSettings.fogColor = horizon;
+            // the fog takes the color of the sky at the horizon in front of the camera, so distant terrain melts into it
+            var flat = new Vector3(ViewDirection.x, 0, ViewDirection.z);
+            if (flat.sqrMagnitude < 1e-4f) flat = Vector3.forward;
+            var atmosphere = Atmosphere(flat.normalized, sunDirection);
+            var scatteringDay = Mathf.Clamp01(sunDirection.y * 5 + 0.25f) * (1 - overcast);
+            var linearHorizon = horizon.linear * 1.3f;
+            var fog = Vector3.Lerp(new Vector3(linearHorizon.r, linearHorizon.g, linearHorizon.b), atmosphere, scatteringDay);
+            RenderSettings.fogColor = new Color(fog.x, fog.y, fog.z).gamma;
             // rain brings the fog closer (vanilla thickens it a little in rain, the realistic sky a lot)
             RenderSettings.fogStartDistance = fogStart * (1 - overcast * 0.6f);
             RenderSettings.fogEndDistance = fogEnd * (1 - overcast * 0.35f);
@@ -178,6 +285,7 @@ namespace WhiteFox.Client
             UnityEngine.Object.Destroy(root);
             UnityEngine.Object.Destroy(sky);
             UnityEngine.Object.Destroy(profile);
+            if (cloudNoise != null) UnityEngine.Object.Destroy(cloudNoise);
         }
     }
 }

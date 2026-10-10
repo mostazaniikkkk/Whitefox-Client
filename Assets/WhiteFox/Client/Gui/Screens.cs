@@ -18,7 +18,6 @@ namespace WhiteFox.Client.Gui
             None,
             Connect,
             Options,
-            Accounts,
             Quit,
         }
 
@@ -46,8 +45,7 @@ namespace WhiteFox.Client.Gui
             this.splashes.Add("Minosoft in Unity!");
         }
 
-        /// <param name="account">The selected Microsoft account, or null to join with the offline name.</param>
-        public Action Draw(GuiRenderer gui, string message, Core.Accounts.Account account)
+        public Action Draw(GuiRenderer gui, string message)
         {
             var center = Mathf.Floor(gui.Width / 2);
             var top = Mathf.Floor(gui.Height / 4);
@@ -69,23 +67,14 @@ namespace WhiteFox.Client.Gui
             var y = top + 14;
             gui.Text("Server Address", center - 100, y, GuiRenderer.Gray);
             if (Address.Draw(gui, new Rect(center - 100, y + 10, 200, 20))) return Submit();
-            if (account != null && account.IsOnline)
-            {
-                gui.Text("Microsoft Account", center - 100, y + 36, GuiRenderer.Gray);
-                gui.Text(account.Name, center - 96, y + 52);
-            }
-            else
-            {
-                gui.Text("Name (offline account)", center - 100, y + 36, GuiRenderer.Gray);
-                if (Username.Draw(gui, new Rect(center - 100, y + 46, 200, 20))) return Submit();
-            }
+            gui.Text("Name", center - 100, y + 36, GuiRenderer.Gray);
+            if (Username.Draw(gui, new Rect(center - 100, y + 46, 200, 20))) return Submit();
 
             var action = Action.None;
             if (gui.Button(new Rect(center - 100, y + 74, 200, 20), "Join Server")) action = Submit();
             if (gui.Button(new Rect(center - 100, y + 98, 98, 20), pinging ? "..." : "Ping", !pinging)) Ping();
-            if (gui.Button(new Rect(center + 2, y + 98, 98, 20), "Accounts...")) action = Action.Accounts;
-            if (gui.Button(new Rect(center - 100, y + 122, 98, 20), "Options...")) action = Action.Options;
-            if (gui.Button(new Rect(center + 2, y + 122, 98, 20), "Quit Game")) action = Action.Quit;
+            if (gui.Button(new Rect(center + 2, y + 98, 98, 20), "Options...")) action = Action.Options;
+            if (gui.Button(new Rect(center - 100, y + 122, 200, 20), "Quit Game")) action = Action.Quit;
 
             var info = message ?? pingResult;
             if (info != null)
@@ -99,7 +88,7 @@ namespace WhiteFox.Client.Gui
                 }
             }
 
-            gui.Text("WhiteFox 2.0 (" + Protocol.VersionName + ")", 2, gui.Height - 10);
+            gui.Text("WhiteFox 2.1 (" + Protocol.VersionName + ")", 2, gui.Height - 10);
             gui.TextRight("Based on Minosoft. Not affiliated with Mojang", gui.Width - 2, gui.Height - 10);
             if (action != Action.None) Save();
             return action;
@@ -270,9 +259,34 @@ namespace WhiteFox.Client.Gui
             if (gui.Button(new Rect(center - 155, y + 96, 150, 20), "Touch Controls: " + touchModes[Mathf.Clamp(settings.TouchControls, 0, 2)])) settings.TouchControls = (settings.TouchControls + 1) % 3;
             if (!Application.isMobilePlatform && gui.Button(new Rect(center + 5, y + 96, 150, 20), "Fullscreen: " + (WhiteFoxClient.Fullscreen ? "ON" : "OFF"))) WhiteFoxClient.ToggleFullscreen();
 
-            gui.TextCentered(settings.Graphics == GraphicsMode.Modern
-                ? "Modern: shadows, real lights, PBR (LabPBR), water and sky"
-                : "Classic: the original Minosoft look", center, y + 126, GuiRenderer.Gray);
+            // internal resolution: 50 .. 100 % in steps of 5
+            var scale = gui.Slider(new Rect(center - 155, y + 120, 310, 20), "Resolution: " + Mathf.RoundToInt(settings.RenderScale * 100) + "%", (settings.RenderScale - 0.5f) / 0.5f);
+            settings.RenderScale = Mathf.Round((0.5f + scale * 0.5f) * 20) / 20;
+
+            // frame rate limit: 15 .. 240, the far right is unlimited
+            var steps = Settings.FpsSteps;
+            var current = System.Array.IndexOf(steps, settings.MaxFps);
+            if (current < 0)
+            {
+                current = steps.Length - 2;
+                for (var i = 0; i < steps.Length - 1; i++)
+                {
+                    if (steps[i] >= settings.MaxFps)
+                    {
+                        current = i;
+                        break;
+                    }
+                }
+            }
+            var label = settings.MaxFps <= 0 ? "Max Framerate: Unlimited" : "Max Framerate: " + settings.MaxFps + " fps";
+            var position = gui.Slider(new Rect(center - 155, y + 144, 310, 20), label, current / (float)(steps.Length - 1));
+            var chosen = steps[Mathf.Clamp(Mathf.RoundToInt(position * (steps.Length - 1)), 0, steps.Length - 1)];
+            if (chosen != settings.MaxFps)
+            {
+                settings.MaxFps = chosen;
+                settings.ApplyFrameRate();
+            }
+
 
             if (gui.Button(new Rect(center - 100, gui.Height - 30, 200, 20), "Done"))
             {
@@ -456,6 +470,33 @@ namespace WhiteFox.Client.Gui
             if (gui.Button(new Rect(center - 155, y, 150, 20), "Post-processing: " + (settings.PostProcessing ? "ON" : "OFF")))
             {
                 settings.PostProcessing = !settings.PostProcessing;
+                changed = true;
+            }
+            y += 24;
+            var reflectionNames = new[] { "OFF", "Low", "High" };
+            if (gui.Button(new Rect(center - 155, y, 150, 20), "Reflections: " + reflectionNames[Mathf.Clamp(settings.WaterReflections, 0, 2)], settings.RealisticWater))
+            {
+                settings.WaterReflections = (settings.WaterReflections + 1) % 3;
+                changed = true;
+            }
+            var volumetricNames = new[] { "OFF", "Low", "High" };
+            y += 24;
+            if (gui.Button(new Rect(center - 155, y, 150, 20), "God Rays: " + volumetricNames[Mathf.Clamp(settings.VolumetricLight, 0, 2)], settings.SunShadows > 0))
+            {
+                settings.VolumetricLight = (settings.VolumetricLight + 1) % 3;
+                changed = true;
+            }
+            var cloudNames = new[] { "Vanilla", "Volumetric", "Volumetric HQ" };
+            if (gui.Button(new Rect(center + 5, y, 150, 20), "Clouds: " + cloudNames[Mathf.Clamp(settings.VolumetricClouds, 0, 2)]))
+            {
+                settings.VolumetricClouds = (settings.VolumetricClouds + 1) % 3;
+                changed = true;
+            }
+            y -= 24;
+            var blurNames = new[] { "OFF", "Low", "High" };
+            if (gui.Button(new Rect(center + 5, y, 150, 20), "Motion Blur: " + blurNames[Mathf.Clamp(settings.MotionBlur, 0, 2)], settings.PostProcessing))
+            {
+                settings.MotionBlur = (settings.MotionBlur + 1) % 3;
                 changed = true;
             }
 

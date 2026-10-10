@@ -24,22 +24,22 @@ development test bed.
 
 ## Download
 
-Windows builds are on the [Releases](https://github.com/mostazaniikkkk/Whitefox-Client/releases) page. Unzip and run
-`WhiteFox.exe`. The first start downloads about 25 MB of game data.
+Builds are on the [Releases](https://github.com/mostazaniikkkk/Whitefox-Client/releases) page:
+
+- **Windows (x64):** unzip and run `WhiteFox.exe`.
+- **Android (ARM64, Android 7+):** install the APK (allow apps from unknown sources). Touch controls in the Pocket
+  Edition style turn on automatically.
+
+The first start downloads about 25 MB of game data.
 
 ## Features
 
-### Servers and accounts
+### Servers
 
 - Full 1.20.4 connection: handshake → login → configuration → play, zlib compression, server list ping (MOTD,
   players, latency).
-- **Optional Microsoft accounts**: sign in with a device code (the client opens microsoft.com/link and copies the
-  code), like the official launchers. You stay signed in: the refresh token is kept (it lasts months and is renewed
-  every time the client starts) and the 24 hour Minecraft session is renewed silently before joining. A Microsoft
-  account joins `online-mode` servers (Mojang session authentication and AES/CFB8 encryption); without one you join
-  offline servers with a name, as before. Several accounts can be saved; one is selected.
-- Tokens are stored encrypted for the current Windows user (DPAPI) in `accounts.toml`; the file is useless on another
-  machine or user account.
+- Joins **offline mode** servers with a name (no premium accounts); addresses use SRV records like vanilla (Aternos and
+  similar hosts). Online mode servers are refused with a message.
 - Chat and commands (T or /) with colors, hex colors, bold, underline, strikethrough, obfuscated text, clickable links
   (with confirmation), command suggestions, copy, and hover text; translations from the game's language files.
 - Server resource packs (offer, download, SHA-1 check, status replies, removal), with vanilla's prompt or an
@@ -70,16 +70,27 @@ Windows builds are on the [Releases](https://github.com/mostazaniikkkk/Whitefox-
 
 On by default; F6 switches to the classic look (Minosoft/vanilla). `-wf-classic` starts in classic mode.
 
-- **Sun and moon** as a directional light with cascaded shadows following the time of day; procedural sky with sun,
-  moon and stars; ACES tonemapping, bloom and color grading.
+- **Sun and moon** as a directional light with cascaded shadows following the time of day; ACES tonemapping, bloom
+  and color grading, optional camera motion blur.
+- **Sky and atmosphere:** analytic single scattering (Rayleigh + Mie) for deep blue skies, orange sunrises and
+  sunsets and a haze around the sun; the fog takes the color of the horizon in front of the camera; stars at night.
+- **Volumetric clouds:** a ray marched cloud layer (tiling Perlin-Worley noise for shape, erosion and coverage) lit by
+  the sun with self shadowing, drifting east and covering the sky in rain. The vanilla box clouds remain an option.
+- **God rays:** volumetric sun light, a short ray march through the sun shadow map per pixel.
 - **Real lights**: every nearby light-emitting block is a point light with physical falloff and its own color; the
   closest ones cast shadows. Minecraft's stepped block light levels are not used in this mode.
 - **PBR materials** compatible with **LabPBR** resource packs (`*_n.png`, `*_s.png`): normal maps, AO, smoothness,
   F0/metal and emission. Without a PBR pack, soft normals are generated from the albedo.
-- **Water** with animated waves, Fresnel sky reflection, sun glints, refraction and depth-based absorption; emissive
-  lava with bloom.
+- **Water** with animated waves (calmer in the distance), **screen space reflections** of the scene, Fresnel sky
+  reflection, sun glints, refraction and depth-based absorption; emissive lava with bloom.
 - Quality presets (low/medium/high/ultra) for sun shadows, number of real lights, shadowed lights, relief, water,
-  bloom and post-processing.
+  reflections, god rays, clouds, bloom, post-processing and motion blur. Internal resolution 50–100 % and a frame rate
+  limit (15 fps to unlimited, 60 by default) in the options.
+- Light sources are grouped and culled (frustum, cave culling, distance) so worlds with thousands of them (lava
+  lakes) stay fast; sections only draw the parts they have.
+
+Several techniques (screen space reflections, volumetric light and clouds, the atmosphere) follow the approach of
+the MIT licensed [Arc Shader](https://github.com/Null-MC/Arc-Shader) by Null-MC, reimplemented for Unity URP.
 
 OptiFine/Iris GLSL shader packs are not supported (Unity does not compile shaders at runtime and its pipeline is
 different); their LabPBR resource packs are.
@@ -103,18 +114,22 @@ different); their LabPBR resource packs are.
 ### Entities
 
 - Vanilla models with animations (walking, looking, attacking, sneaking, riding, swimming, death, red hurt flash):
-  players (vanilla default skin by UUID, or the profile skin on online servers; 64×32 skins converted),
+  players (vanilla default skin by UUID, or the skin the server sends; 64×32 skins converted),
   zombies/husks/drowned, skeletons, creepers, spiders, cows/mooshrooms, pigs, sheep (color and sheared), chickens,
   endermen, villagers/witches/illagers, slimes, wolves, cats/ocelots, iron and snow golems, piglins, llamas, bees,
   fish, squids, bats, foxes, polar bears, blazes, ghasts, horses/donkeys/mules, turtles, dolphins, axolotls, frogs,
-  goats, rabbits, parrots, camels, sniffers, the warden, guardians, the wither, the ender dragon, armor stands, boats
-  and minecarts. Entities without a model yet are drawn as their hitbox.
+  goats, rabbits, parrots, camels, sniffers, the warden, guardians, the wither, the ender dragon, allays, vexes,
+  endermites, silverfish, magma cubes, phantoms, hoglins/zoglins, ravagers, pandas (genes), striders (saddle, cold),
+  shulkers (colors, peeking), tadpoles, the breeze, giants, armor stands, boats and minecarts. Entities without a
+  model yet are drawn as their hitbox.
 - Texture variants: cats, horse colors and markings, llamas, parrots, rabbits, foxes, axolotls, frogs, mooshrooms,
   tropical fish (shape, pattern and colors), villagers and zombie villagers (biome, profession and level).
 - The dragon flaps its wings and sways its neck and tail; the wither's ribcage breathes; guardians retract their 12
   spikes while swimming.
 - Worn armor (dyed leather included), held items, dropped items with vanilla's per-pixel extruded thickness,
-  experience orbs, falling blocks, arrows, thrown projectiles, item frames and all 30 paintings.
+  experience orbs, falling blocks, arrows, thrown projectiles, item frames and all 30 paintings; primed TNT, end
+  crystals, thrown tridents, wither skulls, shulker bullets, llama spit, dragon fireballs, fishing bobbers with their
+  line, leads and leash knots, evoker fangs.
 - **Enchantment glint** (vanilla texture and scrolling) on enchanted items and books, potions, enchanted golden apples…
   in the inventory, in hand, on the ground and on worn armor.
 - Attacking (left click), interacting and mounting (right click); passengers are positioned like vanilla, saddled
@@ -162,20 +177,8 @@ Everything is stored in `%USERPROFILE%\AppData\LocalLow\WhiteFox\WhiteFox` (Unit
 | File / folder | Contents |
 |---|---|
 | `config.toml` | Graphics, quality, controls (rebindable keys), volumes, resource packs, last server, offline name. Human readable; saved when options change and on exit. |
-| `accounts.toml` | Saved accounts and the selected one; tokens encrypted with DPAPI. |
 | `resourcepacks/` | Resource packs (zip files or folders). |
 | `cache/` | Downloaded game data (client jar, sounds, server resource packs). |
-
-**Microsoft sign-in needs an Azure client id** in `config.toml`:
-
-```toml
-[microsoft]
-client_id = "00000000-0000-0000-0000-000000000000"
-```
-
-Register an app at portal.azure.com for personal Microsoft accounts and enable "Allow public client flows". Mojang
-also requires new apps to request access to its Minecraft login API; until that is granted the login fails with a 403,
-and the client says so.
 
 ## Controls
 
@@ -189,6 +192,7 @@ and the client says so.
 | E | Inventory |
 | Q / F | Drop item / swap hands |
 | F1 | Hide the HUD and hand |
+| F11 | Fullscreen |
 | F3 | Debug screen |
 | F5 | First / third person |
 | F6 | Realistic / classic graphics |
@@ -231,7 +235,6 @@ dotnet run -- ./cache --server 127.0.0.1:25565         # joins a server and chec
 ```
 Assets/WhiteFox/
   Core/            no UnityEngine references (asmdef noEngineReferences)
-    Accounts/      Microsoft login, account store                     ← Minosoft accounts/
     Assets/        layered AssetManager, verified downloads             ← Minosoft assets/
     Data/          blocks, items, entities, materials                   ← data/registries
     Worlds/        World, Chunk, ChunkSection, LightEngine, biomes      ← data/world
@@ -266,11 +269,11 @@ Deliberate differences from Minosoft:
 ## Roadmap
 
 1. Saved server list (with ping, MOTD and icon).
-2. A web build (WebGL) through the BambiettaServer WebSocket backend, and MCPE-style touch controls.
+2. A web build (WebGL) through the BambiettaServer WebSocket backend.
 3. Remaining approximations: the dragon's neck and tail do not follow its flight path (vanilla uses the position
    history), the wither's side heads do not track targets, horse jump strength uses the average (the attribute is not
    sent to the client), and banners/shields in hand are drawn without their patterns.
-4. Models for the entities still drawn as boxes, display entities (text/item/block displays).
+4. Display entities (text/item/block displays), the wind charge, cloud shadows on the terrain.
 
 ## License
 

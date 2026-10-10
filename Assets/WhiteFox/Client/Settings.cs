@@ -109,6 +109,14 @@ namespace WhiteFox.Client
         public bool RealisticWater = true;
         public bool Bloom = true;
         public bool PostProcessing = true;
+        /// <summary>Camera motion blur: 0 off, 1 low, 2 high (realistic mode).</summary>
+        public int MotionBlur;
+        /// <summary>Screen space reflections on the realistic water: 0 off, 1 low (16 steps), 2 high (32 steps).</summary>
+        public int WaterReflections = 2;
+        /// <summary>Volumetric sun light (god rays): 0 off, 1 low, 2 high.</summary>
+        public int VolumetricLight = 1;
+        /// <summary>Clouds of the realistic mode: 0 the vanilla boxes, 1 volumetric (low), 2 volumetric (high).</summary>
+        public int VolumetricClouds = 1;
 
         /// <summary>Volume per sound category (master, music, records, weather, blocks, hostile, neutral, players, ambient, voice).</summary>
         public readonly float[] Volumes = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 };
@@ -118,14 +126,26 @@ namespace WhiteFox.Client
         /// <summary>Server resource packs: 0 ask, 1 always accept, 2 decline (required packs are still asked).</summary>
         public int ServerPacks;
 
+        /// <summary>Internal resolution of the 3D view, 0.5 .. 1 of the window (the GUI stays sharp).</summary>
+        public float RenderScale = 1;
+        /// <summary>Frame rate limit, 0 = unlimited.</summary>
+        public int MaxFps = 60;
+        /// <summary>The steps of the frame rate slider (the last one, 0, is unlimited).</summary>
+        public static readonly int[] FpsSteps = { 15, 20, 25, 30, 40, 50, 60, 75, 90, 100, 120, 144, 165, 180, 240, 0 };
+
+        /// <summary>Applies the frame rate limit (vsync off, so the limit is exact).</summary>
+        public void ApplyFrameRate()
+        {
+            QualitySettings.vSyncCount = 0;
+            Application.targetFrameRate = MaxFps <= 0 ? -1 : MaxFps;
+        }
+
         /// <summary>Touch controls: 0 auto (phones and tablets), 1 always, 2 never.</summary>
         public int TouchControls;
 
         /// <summary>Title screen: the last server and the name of offline accounts.</summary>
         public string Address = "localhost";
         public string OfflineName = "WhiteFox";
-        /// <summary>Application (client) id of the Azure app used for Microsoft logins; empty disables them.</summary>
-        public string MicrosoftClientId = "";
 
         public readonly KeyBinding Forward = new KeyBinding("forward", "Walk Forwards", Key.W);
         public readonly KeyBinding Back = new KeyBinding("back", "Walk Backwards", Key.S);
@@ -160,7 +180,7 @@ namespace WhiteFox.Client
             Load();
         }
 
-        /// <summary>config.toml in the user data folder (next to the cache, resource packs and accounts).</summary>
+        /// <summary>config.toml in the user data folder (next to the cache and the resource packs).</summary>
         public static string ConfigPath => System.IO.Path.Combine(Application.persistentDataPath, "config.toml");
 
         public void Load()
@@ -173,6 +193,7 @@ namespace WhiteFox.Client
                 {
                     Graphics = GraphicsMode.Classic;
                     ViewDistance = 6;
+                    RenderScale = 0.75f;
                 }
                 // first run with the TOML configuration: take over what earlier versions kept in PlayerPrefs
                 LoadPlayerPrefs();
@@ -195,6 +216,9 @@ namespace WhiteFox.Client
             ViewDistance = Mathf.Clamp(video.GetInt("view_distance", ViewDistance), 2, 32);
             FieldOfView = video.GetFloat("fov", FieldOfView);
             Brightness = video.GetFloat("brightness", Brightness);
+            RenderScale = Mathf.Clamp(video.GetFloat("render_scale", RenderScale), 0.5f, 1);
+            MaxFps = video.GetInt("max_fps", MaxFps);
+            if (MaxFps != 0) MaxFps = Mathf.Clamp(MaxFps, 15, 1000);
             var quality = video.Table("quality");
             SunShadows = quality.GetInt("sun_shadows", SunShadows);
             BlockLights = quality.GetInt("block_lights", BlockLights);
@@ -203,6 +227,10 @@ namespace WhiteFox.Client
             RealisticWater = quality.GetBool("realistic_water", RealisticWater);
             Bloom = quality.GetBool("bloom", Bloom);
             PostProcessing = quality.GetBool("post_processing", PostProcessing);
+            MotionBlur = Mathf.Clamp(quality.GetInt("motion_blur", MotionBlur), 0, 2);
+            WaterReflections = Mathf.Clamp(quality.GetInt("water_reflections", WaterReflections), 0, 2);
+            VolumetricLight = Mathf.Clamp(quality.GetInt("volumetric_light", VolumetricLight), 0, 2);
+            VolumetricClouds = Mathf.Clamp(quality.GetInt("volumetric_clouds", VolumetricClouds), 0, 2);
 
             var controls = root.Table("controls");
             MouseSensitivity = controls.GetFloat("mouse_sensitivity", MouseSensitivity);
@@ -226,7 +254,6 @@ namespace WhiteFox.Client
             var multiplayer = root.Table("multiplayer");
             Address = multiplayer.GetString("address", Address);
             OfflineName = multiplayer.GetString("offline_name", OfflineName);
-            MicrosoftClientId = root.Table("microsoft").GetString("client_id", MicrosoftClientId);
         }
 
         /// <summary>False for automated test runs: their command line overrides must not end up in the user's config.</summary>
@@ -241,6 +268,8 @@ namespace WhiteFox.Client
             video["view_distance"] = (long)ViewDistance;
             video["fov"] = Real(FieldOfView);
             video["brightness"] = Real(Brightness);
+            video["render_scale"] = Real(RenderScale);
+            video["max_fps"] = (long)MaxFps;
             var quality = video.Table("quality");
             quality["sun_shadows"] = (long)SunShadows;
             quality["block_lights"] = (long)BlockLights;
@@ -249,6 +278,10 @@ namespace WhiteFox.Client
             quality["realistic_water"] = RealisticWater;
             quality["bloom"] = Bloom;
             quality["post_processing"] = PostProcessing;
+            quality["motion_blur"] = (long)MotionBlur;
+            quality["water_reflections"] = (long)WaterReflections;
+            quality["volumetric_light"] = (long)VolumetricLight;
+            quality["volumetric_clouds"] = (long)VolumetricClouds;
 
             var controls = root.Table("controls");
             controls["mouse_sensitivity"] = Real(MouseSensitivity);
@@ -267,14 +300,12 @@ namespace WhiteFox.Client
             var multiplayer = root.Table("multiplayer");
             multiplayer["address"] = Address ?? "";
             multiplayer["offline_name"] = OfflineName ?? "";
-            root.Table("microsoft")["client_id"] = MicrosoftClientId ?? "";
 
             var path = ConfigPath;
             try
             {
                 System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
                 var text = "# WhiteFox configuration (written by the client; edits are kept while it is closed)\n" +
-                           "# microsoft.client_id: Azure app id for Microsoft accounts (personal accounts, public client flows)\n\n" +
                            Toml.Write(root);
                 // write a temporary file first so a crash while saving can not leave a broken configuration
                 System.IO.File.WriteAllText(path + ".tmp", text);
@@ -284,6 +315,37 @@ namespace WhiteFox.Client
             catch (Exception exception)
             {
                 UnityEngine.Debug.LogWarning("WhiteFox: can not save " + path + ": " + exception.Message);
+            }
+        }
+
+        /// <summary>Test runs (-wf-set "sun_shadows=0,bloom=0,..."): settings changed for this run only.</summary>
+        public void Override(string spec)
+        {
+            foreach (var pair in spec.Split(','))
+            {
+                var parts = pair.Split('=');
+                if (parts.Length != 2) continue;
+                var key = parts[0].Trim();
+                var value = parts[1].Trim();
+                int.TryParse(value, out var number);
+                float.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var real);
+                switch (key)
+                {
+                    case "graphics": Graphics = value == "classic" ? GraphicsMode.Classic : GraphicsMode.Modern; break;
+                    case "view": ViewDistance = number; break;
+                    case "sun_shadows": SunShadows = number; break;
+                    case "block_lights": BlockLights = number; break;
+                    case "block_light_shadows": BlockLightShadows = number; break;
+                    case "relief": Relief = number; break;
+                    case "water": RealisticWater = number != 0; break;
+                    case "bloom": Bloom = number != 0; break;
+                    case "post": PostProcessing = number != 0; break;
+                    case "motion_blur": MotionBlur = number; break;
+                    case "water_reflections": WaterReflections = number; break;
+                    case "volumetric": VolumetricLight = number; break;
+                    case "clouds": VolumetricClouds = number; break;
+                    case "render_scale": RenderScale = real; break;
+                }
             }
         }
 

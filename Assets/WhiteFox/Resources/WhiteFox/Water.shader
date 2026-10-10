@@ -1,7 +1,9 @@
 // WhiteFox - Unity port of Minosoft (https://gitlab.bixilon.de/bixilon/minosoft), Copyright (C) 2020-2023 Moritz Zwerger
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Realistic water: animated wave normals, Fresnel sky reflection, sun glint (shadowed), refraction of the scene
+// Realistic water: animated wave normals, Fresnel sky reflection with screen space reflections of the scene (a
+// short ray march through the depth buffer, the technique of Iris shader packs like Arc Shader, MIT), sun glint
+// (shadowed), refraction of the scene
 // behind it (camera opaque texture) with per channel absorption by the water depth (camera depth texture), and
 // light scattered inside the water. Faces are double sided (meshed twice), so the surface is visible from below.
 Shader "WhiteFox/Water"
@@ -10,7 +12,7 @@ Shader "WhiteFox/Water"
     {
         _Textures ("Albedo", 2DArray) = "" {}
         _WaveStrength ("Wave strength", Range(0, 2)) = 1
-        _Absorption ("Absorption (per block)", Vector) = (1.4, 0.38, 0.22, 0)
+        _Absorption ("Absorption (per block)", Vector) = (1.6, 0.55, 0.38, 0)
         _Refraction ("Refraction", Range(0, 0.1)) = 0.03
     }
 
@@ -53,6 +55,8 @@ Shader "WhiteFox/Water"
                 float _Refraction;
             CBUFFER_END
             float4 _WF_OriginOffset;
+            // screen space reflections: 0 off, else the number of ray march steps
+            float _WF_WaterReflectionSteps;
 
             struct Attributes
             {
@@ -106,21 +110,77 @@ Shader "WhiteFox/Water"
                 return gradient;
             }
 
+            float2 ScreenUV(float3 positionWS)
+            {
+                float4 clip = TransformWorldToHClip(positionWS);
+                float4 screen = ComputeScreenPos(clip);
+                return screen.xy / screen.w;
+            }
+
+            // Screen space reflection: march the reflected ray in world space, each step projected to the screen and
+            // compared with the depth buffer; a hit refines by bisection and returns the opaque color there.
+            // confidence fades out at the screen border, for rays towards the camera and when nothing is hit.
+            float3 ScreenSpaceReflection(float3 origin, float3 direction, out float confidence)
+            {
+                confidence = 0.0;
+                int steps = (int)_WF_WaterReflectionSteps;
+                if (steps <= 0 || direction.y < -0.2) return 0;
+                float stepLength = 0.4;
+                float3 previous = origin;
+                float3 position = origin;
+                [loop] for (int i = 0; i < steps; i++)
+                {
+                    position += direction * stepLength;
+                    stepLength *= 1.16;
+                    float2 uv = ScreenUV(position);
+                    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0;
+                    float rayDepth = -TransformWorldToView(position).z;
+                    float sceneDepth = LinearEyeDepth(SampleSceneDepth(uv), _ZBufferParams);
+                    float behind = rayDepth - sceneDepth;
+                    if (behind > 0.0 && behind < stepLength * 2.5 + 0.5)
+                    {
+                        // bisection between the last free point and the hit
+                        float3 low = previous;
+                        float3 high = position;
+                        [unroll] for (int j = 0; j < 4; j++)
+                        {
+                            float3 middle = (low + high) * 0.5;
+                            float2 middleUV = ScreenUV(middle);
+                            float middleDepth = -TransformWorldToView(middle).z;
+                            if (middleDepth > LinearEyeDepth(SampleSceneDepth(middleUV), _ZBufferParams)) high = middle;
+                            else low = middle;
+                        }
+                        float2 hitUV = ScreenUV(high);
+                        float2 edge = min(hitUV, 1.0 - hitUV);
+                        confidence = saturate(min(edge.x, edge.y) * 8.0) * (1.0 - (float)i / steps);
+                        return SampleSceneColor(hitUV);
+                    }
+                    previous = position;
+                }
+                return 0;
+            }
+
             half4 Frag(Varyings input) : SV_Target
             {
                 float3 normal = normalize(input.normalWS);
                 float horizontal = saturate(abs(normal.y));
-                float2 gradient = WaveGradient(input.positionWS.xz + _WF_OriginOffset.xy, _Time.y) * _WaveStrength * horizontal;
+                float distance = length(input.positionWS - _WorldSpaceCameraPos);
+                float calm = 1.0 / (1.0 + distance * 0.04);
+                float2 gradient = WaveGradient(input.positionWS.xz + _WF_OriginOffset.xy, _Time.y) * _WaveStrength * horizontal * (0.35 + 0.65 * calm);
                 normal = normalize(normal + float3(-gradient.x, 0, -gradient.y));
 
                 float3 viewDirection = GetWorldSpaceNormalizeViewDir(input.positionWS);
                 float nDotV = saturate(dot(normal, viewDirection));
-                float fresnel = 0.02 + 0.98 * pow(1.0 - nDotV, 5.0);
+                float fresnel = 0.05 + 0.95 * pow(1.0 - nDotV, 4.0);
 
                 float skyVisibility = input.light.y * input.light.y;
                 float sunGate = 1.0;
                 float3 reflected = reflect(-viewDirection, normal);
                 float3 reflection = WF_SkyColor(reflected) * max(skyVisibility, 0.03);
+                // the scene in the reflection (trees, shores, houses) over the sky where the ray finds it
+                float confidence;
+                float3 sceneReflection = ScreenSpaceReflection(input.positionWS + normal * 0.05, reflected, confidence);
+                reflection = lerp(reflection, sceneReflection, confidence);
 
                 Light mainLight = GetMainLight(TransformWorldToShadowCoord(input.positionWS));
                 float glint = pow(saturate(dot(reflected, mainLight.direction)), 400.0) * 6.0;
@@ -161,7 +221,7 @@ Shader "WhiteFox/Water"
                 half4 texel = SAMPLE_TEXTURE2D_ARRAY(_Textures, sampler_Textures, input.uv.xy, input.uv.z);
                 float detail = 0.8 + dot(texel.rgb, float3(0.3, 0.6, 0.1)) * 0.4;
                 // light scattered inside the water (blue-green), more of it the deeper the water is
-                float3 scattering = input.tint * ambient * 0.5 * detail;
+                float3 scattering = input.tint * ambient * 0.12 * detail;
                 float3 water = background * transmittance + scattering * (1.0 - transmittance);
                 float3 color = water * (1.0 - fresnel) + reflection * fresnel + specular;
                 color = MixFog(color, input.fog);

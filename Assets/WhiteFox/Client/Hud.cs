@@ -98,6 +98,7 @@ namespace WhiteFox.Client
                 if (icon != null && gui.Repaint)
                 {
                     GUI.DrawTexture(new Rect(x, y, 16, 16), icon);
+                    ItemIcons.DrawDurability(gui, new Rect(x, y, 16, 16), stack);
                     if (Core.Data.ItemProperties.HasFoil(stack)) icons.DrawGlint(new Rect(x, y, 16, 16), icon);
                 }
                 else if (icon == null) gui.TextCentered(item.Substring(0, Math.Min(2, item.Length)), x + 8, y + 4);
@@ -130,6 +131,7 @@ namespace WhiteFox.Client
                 if (icon != null && gui.Repaint)
                 {
                     GUI.DrawTexture(new Rect(hotbarX - 26, height - 19, 16, 16), icon);
+                    ItemIcons.DrawDurability(gui, new Rect(hotbarX - 26, height - 19, 16, 16), offhand);
                     if (Core.Data.ItemProperties.HasFoil(offhand)) icons.DrawGlint(new Rect(hotbarX - 26, height - 19, 16, 16), icon);
                 }
                 else if (icon == null) gui.TextCentered(offhand.Item.Name.Path.Substring(0, Mathf.Min(2, offhand.Item.Name.Path.Length)), hotbarX - 18, height - 15);
@@ -250,7 +252,7 @@ namespace WhiteFox.Client
             var light = session.World.GetLight(block.X, block.Y, block.Z);
             var left = new List<string>
             {
-                "WhiteFox 2.0 (" + Protocol.VersionName + ")",
+                "WhiteFox 2.1 (" + Protocol.VersionName + ")",
                 $"{fps:0} fps, graphics: {(client.Modern ? "modern" : "classic")}",
                 server == null ? "Local test world" : $"{server.Host}:{server.Port} as {server.Username}, {server.State}",
                 server == null ? null : $"Network: {server.BytesReceived / 1024} KiB in, {server.BytesSent / 1024} KiB out, {server.PendingPackets} queued",

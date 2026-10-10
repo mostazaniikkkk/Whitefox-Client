@@ -227,6 +227,7 @@ namespace WhiteFox.Client.Gui
             }
             else if (icon == null) gui.TextCentered(item.Name.Path.Substring(0, Mathf.Min(2, item.Name.Path.Length)), rect.center.x, rect.y + 4);
             if (count > 1) gui.TextRight(count.ToString(), rect.x + 17, rect.y + 9);
+            ItemIcons.DrawDurability(gui, rect, stack);
         }
 
         // dragging a carried stack over slots (vanilla quick craft): the button and the slots passed so far

@@ -27,6 +27,9 @@ namespace WhiteFox.Client
 
         public bool TouchActive => Touch != null && Touch.Enabled;
 
+        /// <summary>The frame a menu used Esc to close: it must not also open the pause menu.</summary>
+        public int EscapeConsumedFrame = -1;
+
         public PlayerInputReader(Settings settings)
         {
             this.settings = settings;
@@ -55,7 +58,7 @@ namespace WhiteFox.Client
                 input.UseHeld = false;
                 return;
             }
-            if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
+            if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame && EscapeConsumedFrame != Time.frameCount)
             {
                 SetCursorLocked(false);
                 return;

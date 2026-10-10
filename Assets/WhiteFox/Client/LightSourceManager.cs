@@ -21,7 +21,6 @@ namespace WhiteFox.Client
         private readonly Transform root;
         private readonly Dictionary<BlockPos, BlockState> sources = new Dictionary<BlockPos, BlockState>();
         private readonly List<Light> pool = new List<Light>();
-        private readonly List<KeyValuePair<BlockPos, BlockState>> nearest = new List<KeyValuePair<BlockPos, BlockState>>();
 
         /// <summary>Maximum number of point lights (Forward+ handles a few hundred, but every light costs).</summary>
         public int MaxLights = 96;
@@ -90,6 +89,7 @@ namespace WhiteFox.Client
                     sources[new BlockPos(baseX + SectionIndex.X(index), baseY + SectionIndex.Y(index), baseZ + SectionIndex.Z(index))] = state;
                 }
             }
+            cellsDirty = true;
         }
 
         private void OnChunkUnloaded(ChunkPos position)
@@ -100,47 +100,120 @@ namespace WhiteFox.Client
                 if (source.ChunkPos == position) removed.Add(source);
             }
             foreach (var source in removed) sources.Remove(source);
+            if (removed.Count > 0) cellsDirty = true;
         }
 
         private void OnBlockChanged(BlockPos position, BlockState previous, BlockState state)
         {
             if (state != null && state.Luminance > 0) sources[position] = state;
-            else sources.Remove(position);
+            else if (!sources.Remove(position)) return;
+            cellsDirty = true;
         }
 
-        public void Update(Vector3 camera, float time)
+        /// <summary>Sections the cave culling hides (their lights are skipped); null: every section counts.</summary>
+        public System.Func<SectionPos, bool> SectionVisible;
+
+        // light sources grouped into 4x4x4 cells: a lava lake becomes a few lights instead of hundreds
+        private sealed class Cell
         {
-            nearest.Clear();
-            if (Enabled)
+            public BlockState State;
+            public int Count;
+            public int Luminance;
+            public double X, Y, Z;
+            public float Distance;
+        }
+
+        private readonly Dictionary<BlockPos, Cell> cells = new Dictionary<BlockPos, Cell>();
+        private readonly List<Cell> candidates = new List<Cell>();
+        private readonly Plane[] frustum = new Plane[6];
+        private bool cellsDirty = true;
+        private int lastSelection = -100;
+        /// <summary>Lights farther than this (blocks) are not used: their light hardly reaches the view.</summary>
+        public float MaxDistance = 48;
+
+        private static BlockPos CellOf(BlockPos p) => new BlockPos(p.X >> 2, p.Y >> 2, p.Z >> 2);
+
+        private void RebuildCells()
+        {
+            cells.Clear();
+            foreach (var pair in sources)
             {
+                var key = CellOf(pair.Key);
+                if (!cells.TryGetValue(key, out var cell)) cells[key] = cell = new Cell();
+                cell.Count++;
+                cell.X += pair.Key.X + 0.5;
+                cell.Y += pair.Key.Y + Style(pair.Value).Height;
+                cell.Z += pair.Key.Z + 0.5;
+                if (pair.Value.Luminance >= cell.Luminance)
+                {
+                    cell.Luminance = pair.Value.Luminance;
+                    cell.State = pair.Value;
+                }
+            }
+            cellsDirty = false;
+        }
+
+        /// <summary>
+        /// Picks the lights of this frame: the nearest light cells in view (camera frustum and cave culling) within
+        /// <see cref="MaxDistance"/>, chosen again every 4 frames; colors and flicker update every frame.
+        /// </summary>
+        public void Update(Vector3 camera, float time, Camera view = null)
+        {
+            if (!Enabled)
+            {
+                candidates.Clear();
+            }
+            else if (cellsDirty || Time.frameCount - lastSelection >= 4)
+            {
+                if (cellsDirty) RebuildCells();
+                lastSelection = Time.frameCount;
                 var cameraX = camera.x + RenderOrigin.X;
                 var cameraY = camera.y;
                 var cameraZ = -camera.z + RenderOrigin.Z;
-                nearest.AddRange(sources);
-                nearest.Sort((a, b) => Distance(a.Key, cameraX, cameraY, cameraZ).CompareTo(Distance(b.Key, cameraX, cameraY, cameraZ)));
-                if (nearest.Count > MaxLights) nearest.RemoveRange(MaxLights, nearest.Count - MaxLights);
+                if (view != null) GeometryUtility.CalculateFrustumPlanes(view, frustum);
+                candidates.Clear();
+                var max = MaxDistance * MaxDistance;
+                foreach (var cell in cells.Values)
+                {
+                    double x = cell.X / cell.Count, y = cell.Y / cell.Count, z = cell.Z / cell.Count;
+                    var dx = x - cameraX;
+                    var dy = y - cameraY;
+                    var dz = z - cameraZ;
+                    var distance = dx * dx + dy * dy + dz * dz;
+                    if (distance > max) continue;
+                    var range = cell.Luminance * 1.1f + 2;
+                    // a light in a section the cave culling hides only matters when the camera is within its reach
+                    if (SectionVisible != null && distance > range * range && !SectionVisible(new SectionPos((int)Math.Floor(x) >> 4, (int)Math.Floor(y) >> 4, (int)Math.Floor(z) >> 4))) continue;
+                    if (view != null && !GeometryUtility.TestPlanesAABB(frustum, new Bounds(RenderOrigin.ToRender(x, y, z), Vector3.one * range * 2))) continue;
+                    cell.Distance = (float)distance;
+                    candidates.Add(cell);
+                }
+                candidates.Sort((first, second) => first.Distance.CompareTo(second.Distance));
+                if (candidates.Count > MaxLights) candidates.RemoveRange(MaxLights, candidates.Count - MaxLights);
             }
 
-            while (pool.Count < nearest.Count) pool.Add(CreateLight());
+            while (pool.Count < candidates.Count) pool.Add(CreateLight());
             for (var i = 0; i < pool.Count; i++)
             {
                 var light = pool[i];
-                if (i >= nearest.Count)
+                if (i >= candidates.Count)
                 {
                     if (light.enabled) light.enabled = false;
                     continue;
                 }
-                var position = nearest[i].Key;
-                var state = nearest[i].Value;
+                var cell = candidates[i];
+                var state = cell.State;
                 var style = Style(state);
-                light.enabled = true;
-                light.transform.localPosition = RenderOrigin.ToRender(position.X + 0.5, position.Y + style.Height, position.Z + 0.5);
+                if (!light.enabled) light.enabled = true;
+                double x = cell.X / cell.Count, y = cell.Y / cell.Count, z = cell.Z / cell.Count;
+                light.transform.localPosition = RenderOrigin.ToRender(x, y, z);
                 light.color = style.Color;
-                // range from the Minecraft luminance (level 15 reached ~15 blocks), intensity with a subtle flicker for flames
-                light.range = state.Luminance * 1.1f;
-                var flicker = style.Flicker ? 1.0f + 0.06f * Mathf.Sin(time * 11.0f + position.X * 1.7f + position.Z * 2.3f) + 0.04f * Mathf.Sin(time * 23.0f + position.Y) : 1.0f;
-                light.intensity = style.Intensity * Intensity * Exposure * (state.Luminance / 15.0f) * flicker;
-                light.shadows = i < ShadowedLights ? LightShadows.Soft : LightShadows.None;
+                // range from the Minecraft luminance (level 15 reaches ~15 blocks), a little more for a group of sources
+                light.range = state.Luminance * 1.1f + (cell.Count > 1 ? 2 : 0);
+                var flicker = style.Flicker ? 1.0f + 0.06f * Mathf.Sin(time * 11.0f + (float)x * 1.7f + (float)z * 2.3f) + 0.04f * Mathf.Sin(time * 23.0f + (float)y) : 1.0f;
+                light.intensity = style.Intensity * Intensity * Exposure * (state.Luminance / 15.0f) * flicker * Mathf.Min(Mathf.Sqrt(cell.Count), 3);
+                var shadows = i < ShadowedLights ? LightShadows.Soft : LightShadows.None;
+                if (light.shadows != shadows) light.shadows = shadows;
             }
         }
 

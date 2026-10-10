@@ -79,6 +79,13 @@ namespace WhiteFox.Client.Entities
         Guardian,
         Wither,
         Dragon,
+        Allay,
+        Segments,
+        Phantom,
+        Hoglin,
+        Strider,
+        Shulker,
+        Breeze,
     }
 
     public sealed class EntityModel
@@ -178,7 +185,7 @@ namespace WhiteFox.Client.Entities
                 case "elder_guardian": return Guardian(true);
                 case "wither": return Wither();
                 case "ender_dragon": return EnderDragon();
-                default: return null;
+                default: return CreateMob(type);
             }
         }
 

@@ -68,8 +68,6 @@ namespace WhiteFox.Core.Network
         public readonly int Port;
         public readonly string Username;
         public Guid Uuid { get; private set; }
-        /// <summary>The account used to join; a Microsoft account also works on online mode servers.</summary>
-        public readonly Accounts.Account Account;
         public int ViewDistance = 8;
 
         public ProtocolState State { get; private set; } = ProtocolState.Handshake;
@@ -84,20 +82,14 @@ namespace WhiteFox.Core.Network
         public volatile string Status = "Connecting";
 
         public ServerSession(string host, int port, string username, BlockRegistry blocks, ItemRegistry items, EntityTypeRegistry entityTypes)
-            : this(host, port, Accounts.Account.Offline(username), blocks, items, entityTypes)
-        {
-        }
-
-        public ServerSession(string host, int port, Accounts.Account account, BlockRegistry blocks, ItemRegistry items, EntityTypeRegistry entityTypes)
         {
             this.entityTypes = entityTypes;
             Host = host;
             Port = port;
-            Account = account;
-            Username = account.Name;
+            Username = username;
             this.blocks = blocks;
             this.items = items;
-            Uuid = account.Uuid;
+            Uuid = UuidUtil.Offline(username);
             connection.PacketReceived += OnPacket;
             connection.Disconnected += reason =>
             {
@@ -105,14 +97,14 @@ namespace WhiteFox.Core.Network
                 if (State != ProtocolState.Play && reason != null && reason.Contains("Server closed the connection"))
                 {
                     reason += "\nThe server closed the connection while logging in. WhiteFox speaks Minecraft " + Protocol.VersionName +
-                              "; servers on other versions need ViaVersion, and online mode servers a Microsoft account.";
+                              "; servers on other versions need ViaVersion, and WhiteFox only joins offline mode servers.";
                 }
                 DisconnectReason = reason;
                 pending.Enqueue(game => game.OnDisconnected(reason));
             };
         }
 
-        /// <summary>Opens the connection and starts the login (the encryption follows for online mode servers).</summary>
+        /// <summary>Opens the connection and starts the login (offline account).</summary>
         public async Task ConnectAsync()
         {
             Status = $"Connecting to {Host}:{Port}";
@@ -181,7 +173,8 @@ namespace WhiteFox.Core.Network
                     connection.Close(TextComponent.FromJson(buffer.ReadString()).ToPlain());
                     break;
                 case Protocol.LoginS2C.EncryptionRequest:
-                    HandleEncryptionRequest(buffer);
+                    // online mode needs a premium (Microsoft) account, which WhiteFox does not support
+                    connection.Close("This server is in online mode (premium accounts only). WhiteFox joins offline mode servers.");
                     break;
                 case Protocol.LoginS2C.Compression:
                     connection.SetCompression(buffer.ReadVarInt());
@@ -207,42 +200,6 @@ namespace WhiteFox.Core.Network
                     connection.Send(Protocol.LoginC2S.PluginResponse, new OutBuffer().WriteVarInt(messageId).WriteBool(false));
                     break;
             }
-        }
-
-        /// <summary>
-        /// Online mode (vanilla ClientHandshakePacketListenerImpl.handleHello): a random AES key, the session server join
-        /// with the server hash, the key and the verify token encrypted with the server's RSA key, then AES/CFB8 both ways.
-        /// Runs on the network thread, which is fine: the server sends nothing until it gets the response.
-        /// </summary>
-        private void HandleEncryptionRequest(InBuffer buffer)
-        {
-            var serverId = buffer.ReadString();
-            var publicKey = buffer.ReadByteArray();
-            var verifyToken = buffer.ReadByteArray();
-            if (Account == null || !Account.IsOnline)
-            {
-                connection.Close("This server is in online mode: a Microsoft account with Minecraft is needed (title screen → Accounts).");
-                return;
-            }
-            var secret = new byte[16];
-            using (var random = System.Security.Cryptography.RandomNumberGenerator.Create()) random.GetBytes(secret);
-            Status = "Authenticating";
-            try
-            {
-                Accounts.MicrosoftAuth.JoinServerAsync(Account, Crypto.ServerHash(serverId, secret, publicKey)).GetAwaiter().GetResult();
-            }
-            catch (Exception exception)
-            {
-                connection.Close(exception is Accounts.AuthException ? exception.Message : "Could not authenticate with Mojang: " + exception.Message);
-                return;
-            }
-            using (var rsa = Crypto.PublicKey(publicKey))
-            {
-                var padding = System.Security.Cryptography.RSAEncryptionPadding.Pkcs1;
-                connection.Send(Protocol.LoginC2S.EncryptionResponse, new OutBuffer().WriteByteArray(rsa.Encrypt(secret, padding)).WriteByteArray(rsa.Encrypt(verifyToken, padding)));
-            }
-            connection.EnableEncryption(secret);
-            Status = "Logging in";
         }
 
         private void HandleConfiguration(int id, InBuffer buffer)
@@ -935,6 +892,7 @@ namespace WhiteFox.Core.Network
                     var entityId = buffer.ReadInt();
                     var status = buffer.ReadByte();
                     if (status == 3) pending.Enqueue(game => game.OnEntityDeath(entityId));
+                    else if (status == 4) pending.Enqueue(game => game.OnEntityAttack(entityId));
                     else if (status >= 47 && status <= 52) pending.Enqueue(game => game.OnItemBreak(entityId, status - 47));
                     break;
                 }
@@ -966,6 +924,13 @@ namespace WhiteFox.Core.Network
                     var passengers = new int[count];
                     for (var i = 0; i < count; i++) passengers[i] = buffer.ReadVarInt();
                     pending.Enqueue(game => game.OnPassengers(vehicle, passengers));
+                    break;
+                }
+                case Protocol.PlayS2C.LinkEntities:
+                {
+                    var attached = buffer.ReadInt();
+                    var holder = buffer.ReadInt();
+                    pending.Enqueue(game => game.OnLeash(attached, holder));
                     break;
                 }
                 case Protocol.PlayS2C.PickupItem:
