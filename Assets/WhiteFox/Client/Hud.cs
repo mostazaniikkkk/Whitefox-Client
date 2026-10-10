@@ -60,6 +60,7 @@ namespace WhiteFox.Client
         private readonly WhiteFox.Core.Data.ItemRegistry items;
         private int lastSlot = -1;
         private string lastItem;
+        private string lastName;
         private int itemNameShown;
 
         public Hud(GuiRenderer gui, ItemIcons icons, WhiteFox.Core.Data.ItemRegistry items)
@@ -108,18 +109,24 @@ namespace WhiteFox.Client
 
             // name of the selected item, shown for 2 seconds after it changes
             var selected = session.HotbarItems[session.SelectedSlot];
-            if (session.SelectedSlot != lastSlot || selected != lastItem)
+            // the stack's name: a name given in an anvil shows instead of the item's
+            var selectedStack = session.Inventory.Player.Slots[36 + session.SelectedSlot];
+            var selectedName = selectedStack?.HoverName;
+            if (session.SelectedSlot != lastSlot || selected != lastItem || selectedName != lastName)
             {
                 lastSlot = session.SelectedSlot;
                 lastItem = selected;
+                lastName = selectedName;
                 itemNameShown = Environment.TickCount;
             }
             var nameAge = Environment.TickCount - itemNameShown;
             if (selected != null && nameAge < 2000)
             {
-                var name = items.Get(ResourceLocation.Minecraft(selected))?.DisplayName ?? selected;
+                var name = selectedName ?? items.Get(ResourceLocation.Minecraft(selected))?.DisplayName ?? selected;
                 var alpha = Mathf.Clamp01((2000 - nameAge) / 500f);
-                gui.TextCentered(name, width / 2, height - 59, new Color(1, 1, 1, alpha));
+                // vanilla: above the hearts in survival, lower (where they would be) in creative and spectator
+                var survival = session.Player.Gamemode == Gamemode.Survival || session.Player.Gamemode == Gamemode.Adventure;
+                gui.TextCentered(name, width / 2, height - 59 + (survival ? 0 : 14), new Color(1, 1, 1, alpha));
             }
 
             // off hand (left of the hotbar)
@@ -252,8 +259,8 @@ namespace WhiteFox.Client
             var light = session.World.GetLight(block.X, block.Y, block.Z);
             var left = new List<string>
             {
-                "WhiteFox 2.1 (" + Protocol.VersionName + ")",
-                $"{fps:0} fps, graphics: {(client.Modern ? "modern" : "classic")}",
+                "WhiteFox 2.2 (" + Protocol.VersionName + ")",
+                $"{fps:0} fps, graphics: {Settings.GraphicsName(client.Settings.Graphics).ToLowerInvariant()}",
                 server == null ? "Local test world" : $"{server.Host}:{server.Port} as {server.Username}, {server.State}",
                 server == null ? null : $"Network: {server.BytesReceived / 1024} KiB in, {server.BytesSent / 1024} KiB out, {server.PendingPackets} queued",
                 $"C: {client.Renderer.VisibleCount}/{client.Renderer.SectionCount} sections{(client.Renderer.CullingEnabled ? "" : " (no culling)")}, queue {client.Renderer.QueueSize} (+{client.Renderer.RunningCount}), {session.World.ChunkCount} chunks",

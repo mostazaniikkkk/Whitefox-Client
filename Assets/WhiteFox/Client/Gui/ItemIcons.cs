@@ -335,6 +335,11 @@ namespace WhiteFox.Client.Gui
                 var color = quad.TintIndex >= 0 ? tint : 0xFFFFFF;
                 var packed = (uint)((color >> 16) & 0xFF) | (uint)(color & 0xFF00) | (uint)((color & 0xFF) << 16) | ((uint)(shade * 255) << 24);
                 var first = vertices.Count;
+                // normals and tangents like the chunk meshes (the lit shader lights and maps the faces with them)
+                System.Numerics.Vector3 Render(System.Numerics.Vector3 v) => new System.Numerics.Vector3(v.X, v.Y, -v.Z);
+                System.Numerics.Vector2 Uv(int i) => new System.Numerics.Vector2(quad.UVs[i].X, 1 - quad.UVs[i].Y);
+                Core.Meshing.SectionMesher.Frame(quad.Positions, Render(quad.Positions[0]), Render(quad.Positions[1]), Render(quad.Positions[2]),
+                    Uv(0), Uv(1), Uv(2), (block?.EmitLight ?? 0) / 15.0f, quad.Face, out _, out var packedNormal, out var packedTangent);
                 for (var i = 0; i < 4; i++)
                 {
                     var p = quad.Positions[i];
@@ -350,6 +355,8 @@ namespace WhiteFox.Client.Gui
                         AO = 1.0f,
                         BlockLight = 0,
                         SkyLight = 1,
+                        Normal = packedNormal,
+                        Tangent = packedTangent,
                     });
                 }
                 indices.Add(first);

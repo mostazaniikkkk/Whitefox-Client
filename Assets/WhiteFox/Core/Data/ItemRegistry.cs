@@ -64,6 +64,61 @@ namespace WhiteFox.Core.Data
         public int Damage => Network.Nbt.GetInt(Nbt, "Damage");
         public bool ShowsDurability => Item != null && Item.MaxDurability > 0 && Damage > 0 && Network.Nbt.GetInt(Nbt, "Unbreakable") == 0;
 
+        /// <summary>
+        /// The name given in an anvil (NBT display.Name, a JSON text component) with § codes, italic unless the
+        /// component says otherwise (like vanilla); null without one.
+        /// </summary>
+        public string CustomName
+        {
+            get
+            {
+                Parse();
+                return customName;
+            }
+        }
+
+        /// <summary>The custom name without formatting (what the anvil's name field starts with).</summary>
+        public string CustomNamePlain
+        {
+            get
+            {
+                Parse();
+                return customNamePlain;
+            }
+        }
+
+        /// <summary>The name shown in tooltips and above the hotbar: the custom name, else the item's name.</summary>
+        public string HoverName => CustomName ?? Item?.DisplayName;
+
+        // the name is parsed once per NBT value (tooltips ask every frame)
+        private object parsedNbt;
+        private bool parsed;
+        private string customName, customNamePlain;
+
+        private void Parse()
+        {
+            if (parsed && ReferenceEquals(parsedNbt, Nbt)) return;
+            parsed = true;
+            parsedNbt = Nbt;
+            customName = customNamePlain = null;
+            var json = Network.Nbt.GetString(Network.Nbt.Get(Nbt, "display"), "Name");
+            if (string.IsNullOrEmpty(json)) return;
+            try
+            {
+                var component = Network.TextComponent.FromJson(json);
+                if (component == null) return;
+                if (!component.Italic.HasValue) component.Italic = true;
+                customName = component.ToLegacy();
+                customNamePlain = component.ToPlain();
+            }
+            catch (System.Exception)
+            {
+                // not JSON: an old style plain name
+                customName = "§o" + json;
+                customNamePlain = json;
+            }
+        }
+
         public override string ToString() => Count > 1 ? Count + "x " + Item : Item?.ToString();
     }
 }

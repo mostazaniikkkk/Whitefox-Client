@@ -320,25 +320,34 @@ namespace WhiteFox.Client.Gui
             if (inventory.Carried != null)
             {
                 DrawItem(inventory.Carried.Item, inventory.Carried.Count, new Rect(mouse.x - 8, mouse.y - 8, 16, 16), inventory.Carried);
+                // touch screens have no hover: the name of the item picked up shows above the finger
+                if (TouchScreen) DrawTooltip(inventory.Carried.HoverName, new Vector2(mouse.x, mouse.y - 14));
                 return;
             }
-            Item hovered = null;
+            string text = null;
             foreach (var pair in catalogSlots)
             {
-                if (pair.Key.Contains(mouse)) hovered = pair.Value;
+                if (pair.Key.Contains(mouse)) text = pair.Value.DisplayName;
             }
-            if (hovered == null)
+            if (text == null)
             {
                 var window = inventory.Active;
                 foreach (var pair in slots)
                 {
                     if (!pair.Key.Contains(mouse) || pair.Value >= window.Slots.Length) continue;
-                    hovered = window.Slots[pair.Value]?.Item;
+                    text = window.Slots[pair.Value]?.HoverName;
                 }
             }
-            if (hovered == null) return;
+            if (text == null) return;
+            DrawTooltip(text, mouse);
+        }
+
+        /// <summary>Touch input (phones, or -wf-touch on a PC): no mouse hovering over the slots.</summary>
+        private static bool TouchScreen => Application.isMobilePlatform || WhiteFox.Client.TouchControls.Simulated;
+
+        private void DrawTooltip(string text, Vector2 mouse)
+        {
             // vanilla tooltip: dark purple background with a purple border
-            var text = hovered.DisplayName;
             var width = gui.Font.Width(text) + 6;
             var rect = new Rect(mouse.x + 12, mouse.y - 12, width, 14);
             if (rect.xMax > gui.Width) rect.x = mouse.x - 12 - width;

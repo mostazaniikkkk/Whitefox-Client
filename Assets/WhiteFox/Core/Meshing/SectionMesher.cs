@@ -238,6 +238,7 @@ namespace WhiteFox.Core.Meshing
             var smoothLight = new float[8];
             var positions = new Vector3[4];
             var uvs = new Vector2[4];
+            var windWeights = new float[4];
 
             for (var y = 0; y < 16; y++)
             {
@@ -256,6 +257,7 @@ namespace WhiteFox.Core.Meshing
                         var model = render.Pick(worldX + x, worldY + y, worldZ + z);
                         var tint = GetTint(state.Block, x, y, z);
                         var emission = state.Luminance / 15.0f;
+                        var wind = WindOf(state);
 
                         foreach (var quad in model.Quads)
                         {
@@ -282,8 +284,17 @@ namespace WhiteFox.Core.Meshing
                                 uvs[i] = quad.UVs[i];
                             }
                             var indices = quad.Texture.Transparency == TextureTransparency.Translucent ? data.TranslucentIndices : data.OpaqueIndices;
+                            if (wind != Wind.None)
+                            {
+                                for (var i = 0; i < 4; i++)
+                                {
+                                    var height = Math.Max(0.0f, Math.Min(1.0f, quad.Positions[i].Y));
+                                    windWeights[i] = wind == Wind.Leaves ? 0.5f : wind == Wind.UpperHalf ? 1 + height : height;
+                                }
+                            }
                             EmitQuad(data, indices, positions, uvs, quad.Texture.Layer, aoLevels, quad.TintIndex >= 0 ? tint : 0xFFFFFF,
-                                quad.Shade ? Shade(face) : 1.0f, light, emission, face, false, quad.OnBoundary ? smoothLight : null);
+                                quad.Shade ? Shade(face) : 1.0f, light, emission, face, false, quad.OnBoundary ? smoothLight : null,
+                                wind != Wind.None ? windWeights : null);
                         }
                     }
                 }
@@ -298,7 +309,8 @@ namespace WhiteFox.Core.Meshing
         /// as seen from outside, with minecraft uvs (v down). Computes the normal and tangent for normal mapping.
         /// </summary>
         private static void EmitQuad(SectionMeshData data, List<int> indices, Vector3[] positions, Vector2[] uvs, int layer, int[] ao,
-            int tint, float shade, byte light, float emission, Direction face, bool doubleSided, float[] vertexLight = null)
+            int tint, float shade, byte light, float emission, Direction face, bool doubleSided, float[] vertexLight = null,
+            float[] wind = null)
         {
             // render space (z negated) and Unity uvs (v up)
             var p0 = ToRender(positions[0]);
@@ -309,37 +321,8 @@ namespace WhiteFox.Core.Meshing
             var t1 = new Vector2(uvs[1].X, 1 - uvs[1].Y);
             var t2 = new Vector2(uvs[2].X, 1 - uvs[2].Y);
 
-            // the face is counter clockwise in minecraft space, so this points outwards there; z flips with the space
-            var normalMc = Vector3.Cross(positions[1] - positions[0], positions[2] - positions[1]);
-            if (normalMc.LengthSquared() < 1e-10f) normalMc = Vector3.Cross(positions[2] - positions[0], positions[3] - positions[0]);
-            if (normalMc.LengthSquared() < 1e-10f) normalMc = new Vector3(face.X(), face.Y(), face.Z());
-            normalMc = Vector3.Normalize(normalMc);
-            var normal = new Vector3(normalMc.X, normalMc.Y, -normalMc.Z);
-
-            var e1 = p1 - p0;
-            var e2 = p2 - p0;
-            var d1 = t1 - t0;
-            var d2 = t2 - t0;
-            var det = d1.X * d2.Y - d2.X * d1.Y;
-            Vector3 tangent, bitangent;
-            if (Math.Abs(det) < 1e-12f)
-            {
-                tangent = Math.Abs(normal.Y) < 0.99f ? Vector3.Normalize(Vector3.Cross(Vector3.UnitY, normal)) : Vector3.UnitX;
-                bitangent = Vector3.Cross(normal, tangent);
-            }
-            else
-            {
-                var r = 1.0f / det;
-                tangent = (e1 * d2.Y - e2 * d1.Y) * r;
-                bitangent = (e2 * d1.X - e1 * d2.X) * r;
-            }
-            tangent -= normal * Vector3.Dot(normal, tangent);
-            tangent = tangent.LengthSquared() < 1e-12f ? Vector3.UnitX : Vector3.Normalize(tangent);
-            var sign = Vector3.Dot(Vector3.Cross(normal, tangent), bitangent) < 0 ? -1.0f : 1.0f;
-
+            Frame(positions, p0, p1, p2, t0, t1, t2, emission, face, out var normal, out var packedNormal, out var packedTangent);
             var color = (uint)(tint & 0xFF0000) >> 16 | (uint)(tint & 0x00FF00) | (uint)(tint & 0x0000FF) << 16 | (uint)(Math.Max(0, Math.Min(255, (int)(shade * 255))) << 24);
-            var packedNormal = PackSNorm(normal.X, normal.Y, normal.Z, emission);
-            var packedTangent = PackSNorm(tangent.X, tangent.Y, tangent.Z, sign);
             var blockLight = (light & 0x0F) / 15.0f;
             var skyLight = (light >> 4) / 15.0f;
 
@@ -360,7 +343,7 @@ namespace WhiteFox.Core.Meshing
                     BlockLight = vertexLight != null ? vertexLight[i] : blockLight,
                     SkyLight = vertexLight != null ? vertexLight[4 + i] : skyLight,
                     Normal = packedNormal,
-                    Tangent = packedTangent,
+                    Tangent = wind != null ? WithWind(packedTangent, wind[i]) : packedTangent,
                 });
             }
 
@@ -403,6 +386,93 @@ namespace WhiteFox.Core.Meshing
         }
 
         private static Vector3 ToRender(Vector3 p) => new Vector3(p.X, p.Y, -p.Z);
+
+        // ---------------------------------------------------------------- wind
+
+        private enum Wind : byte
+        {
+            None,
+            Leaves,     // the whole block sways a little
+            Plant,      // rooted at the bottom of the block
+            UpperHalf,  // upper half of a tall plant: continues the sway of the lower half
+        }
+
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<Block, Wind> WindKinds =
+            new System.Collections.Concurrent.ConcurrentDictionary<Block, Wind>();
+
+        private static readonly HashSet<string> WindPlants = new HashSet<string>
+        {
+            "grass", "short_grass", "fern", "dead_bush", "dandelion", "poppy", "blue_orchid", "allium", "azure_bluet",
+            "red_tulip", "orange_tulip", "white_tulip", "pink_tulip", "oxeye_daisy", "cornflower", "lily_of_the_valley",
+            "wither_rose", "torchflower", "wheat", "carrots", "potatoes", "beetroots", "sweet_berry_bush", "seagrass",
+            "pink_petals", "crimson_roots", "warped_roots", "nether_sprouts",
+        };
+
+        private static readonly HashSet<string> WindTallPlants = new HashSet<string>
+        {
+            "tall_grass", "large_fern", "sunflower", "lilac", "rose_bush", "peony", "tall_seagrass", "pitcher_plant",
+        };
+
+        /// <summary>How the wind moves a block in the realistic mode (the shader reads it from the vertices).</summary>
+        private static Wind WindOf(BlockState state)
+        {
+            var kind = WindKinds.GetOrAdd(state.Block, block =>
+            {
+                var path = block.Name.Path;
+                if (path.EndsWith("_leaves") || path == "vine") return Wind.Leaves;
+                if (WindTallPlants.Contains(path)) return Wind.UpperHalf;
+                if (WindPlants.Contains(path) || path.EndsWith("_sapling")) return Wind.Plant;
+                return Wind.None;
+            });
+            // tall plants: the lower half is rooted, the upper half continues it
+            if (kind == Wind.UpperHalf && state["half"] != "upper") return Wind.Plant;
+            return kind;
+        }
+
+        private static uint WithWind(uint packedTangent, float weight)
+        {
+            var sign = (sbyte)(byte)(packedTangent >> 24) < 0 ? -1.0f : 1.0f;
+            var w = sign * (0.05f + Math.Max(0.0f, Math.Min(2.0f, weight)) * 0.4f);
+            var packed = (uint)(byte)(sbyte)Math.Round(w * 127.0f);
+            return (packedTangent & 0x00FFFFFF) | (packed << 24);
+        }
+
+        /// <summary>Normal and tangent of a quad (minecraft space positions, render space p0..p2, Unity uvs), packed for the
+        /// chunk vertex format; also used by the block item meshes.</summary>
+        public static void Frame(Vector3[] positions, Vector3 p0, Vector3 p1, Vector3 p2, Vector2 t0, Vector2 t1, Vector2 t2,
+            float emission, Direction face, out Vector3 normal, out uint packedNormal, out uint packedTangent)
+        {
+            // the face is counter clockwise in minecraft space, so this points outwards there; z flips with the space
+            var normalMc = Vector3.Cross(positions[1] - positions[0], positions[2] - positions[1]);
+            if (normalMc.LengthSquared() < 1e-10f) normalMc = Vector3.Cross(positions[2] - positions[0], positions[3] - positions[0]);
+            if (normalMc.LengthSquared() < 1e-10f) normalMc = new Vector3(face.X(), face.Y(), face.Z());
+            normalMc = Vector3.Normalize(normalMc);
+            normal = new Vector3(normalMc.X, normalMc.Y, -normalMc.Z);
+
+            var e1 = p1 - p0;
+            var e2 = p2 - p0;
+            var d1 = t1 - t0;
+            var d2 = t2 - t0;
+            var det = d1.X * d2.Y - d2.X * d1.Y;
+            Vector3 tangent, bitangent;
+            if (Math.Abs(det) < 1e-12f)
+            {
+                tangent = Math.Abs(normal.Y) < 0.99f ? Vector3.Normalize(Vector3.Cross(Vector3.UnitY, normal)) : Vector3.UnitX;
+                bitangent = Vector3.Cross(normal, tangent);
+            }
+            else
+            {
+                var r = 1.0f / det;
+                tangent = (e1 * d2.Y - e2 * d1.Y) * r;
+                bitangent = (e2 * d1.X - e1 * d2.X) * r;
+            }
+            tangent -= normal * Vector3.Dot(normal, tangent);
+            tangent = tangent.LengthSquared() < 1e-12f ? Vector3.UnitX : Vector3.Normalize(tangent);
+            var sign = Vector3.Dot(Vector3.Cross(normal, tangent), bitangent) < 0 ? -1.0f : 1.0f;
+
+            packedNormal = PackSNorm(normal.X, normal.Y, normal.Z, emission);
+            packedTangent = PackSNorm(tangent.X, tangent.Y, tangent.Z, sign);
+        }
 
         private static uint PackSNorm(float x, float y, float z, float w)
         {

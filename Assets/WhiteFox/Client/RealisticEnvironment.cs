@@ -44,19 +44,28 @@ namespace WhiteFox.Client
         public float Thunder;
         /// <summary>How much sky the camera sees (0 in caves): volumetric light only outdoors.</summary>
         public float Outdoors = 1;
+        // eye adaptation: how much the eye is adapted to daylight (follows Outdoors over a second or two)
+        private float adaptation = 1;
         /// <summary>Ray march steps of the volumetric sun light, 0 off.</summary>
         public int VolumetricSteps;
         /// <summary>Volumetric clouds are drawn in the sky (the vanilla cloud boxes are hidden then).</summary>
         public bool VolumetricClouds { get; private set; }
         private Texture3D cloudNoise;
         private Vector2 cloudWind;
+        private bool wavingPlants = true;
         private static readonly int CloudStepsId = Shader.PropertyToID("_WF_CloudSteps");
         private static readonly int CloudLightStepsId = Shader.PropertyToID("_WF_CloudLightSteps");
         private static readonly int CloudCoverageId = Shader.PropertyToID("_WF_CloudCoverage");
         private static readonly int CloudWindId = Shader.PropertyToID("_WF_CloudWind");
+        private static readonly int WindStrengthId = Shader.PropertyToID("_WF_WindStrength");
         private static readonly int CloudNoiseId = Shader.PropertyToID("_WF_CloudNoise");
 
         private GameObject volumetric;
+        private bool godRays;
+        private float mist;
+        private static readonly int MistDensityId = Shader.PropertyToID("_WF_MistDensity");
+        private static readonly int MistSunlightId = Shader.PropertyToID("_WF_MistSunlight");
+        private static readonly int MistColorId = Shader.PropertyToID("_WF_MistColor");
         private Material volumetricMaterial;
         private Mesh volumetricMesh;
         private static readonly int VolumetricStepsId = Shader.PropertyToID("_WF_VolumetricSteps");
@@ -127,7 +136,11 @@ namespace WhiteFox.Client
         /// <summary>Applies the modern quality settings (sun shadows, bloom, post processing).</summary>
         public void ApplyQuality(Settings settings, Camera camera)
         {
-            VolumetricSteps = settings.VolumetricLight == 0 ? 0 : settings.VolumetricLight == 1 ? 10 : 20;
+            godRays = settings.VolumetricLight > 0;
+            wavingPlants = settings.WavingPlants;
+            mist = settings.Mist == 0 ? 0 : settings.Mist == 1 ? 0.006f : 0.016f;
+            // the mist alone needs fewer steps than sharp light shafts
+            VolumetricSteps = settings.VolumetricLight == 2 ? 20 : settings.VolumetricLight == 1 ? 10 : mist > 0 ? 8 : 0;
             VolumetricClouds = settings.VolumetricClouds > 0;
             if (VolumetricClouds && cloudNoise == null)
             {
@@ -242,15 +255,26 @@ namespace WhiteFox.Client
             cloudWind += new Vector2(-Time.deltaTime * 0.6f, 0);
             cloudWind.x %= 4096;
             Shader.SetGlobalVector(CloudWindId, new Vector4(cloudWind.x, 0, cloudWind.y, 0));
+            // leaves and plants sway harder in rain and storms
+            Shader.SetGlobalFloat(WindStrengthId, wavingPlants ? 1.0f + 1.2f * Mathf.Clamp01(Rain) + 1.0f * Mathf.Clamp01(Thunder) : 0);
             Shader.SetGlobalFloat(CloudCoverageId, Mathf.Lerp(0.5f, 0.92f, Mathf.Clamp01(Rain)));
 
             // god rays need the sun shadow map; they fade in caves, in rain and at night
             if (volumetric != null)
             {
-                var active = VolumetricSteps > 0 && sunShadows && intensity > 0.01f;
+                // mist: thicker at dawn (morning fog), in rain, none in caves (it would light them up)
+                var hour = timeOfDay % 24000;
+                var morning = hour > 22500 ? (hour - 22500) / 1500f : hour < 3000 ? 1 - hour / 3000f : 0;
+                var mistDensity = mist * (1 + 2.5f * morning + 2.5f * Mathf.Clamp01(Rain)) * Mathf.Clamp01(Outdoors);
+                var active = VolumetricSteps > 0 && sunShadows && (godRays && intensity > 0.01f || mistDensity > 0);
                 if (volumetric.activeSelf != active) volumetric.SetActive(active);
                 Shader.SetGlobalFloat(VolumetricStepsId, VolumetricSteps);
-                Shader.SetGlobalFloat(VolumetricStrengthId, 0.6f * Mathf.Clamp01(Outdoors) * (1 - overcast * 0.8f) * (moon ? 0.35f : 1));
+                var sunReach = Mathf.Clamp01(Outdoors) * (1 - overcast * 0.8f) * (moon ? 0.35f : 1);
+                Shader.SetGlobalFloat(VolumetricStrengthId, godRays ? 0.6f * sunReach : 0);
+                Shader.SetGlobalFloat(MistDensityId, mistDensity);
+                Shader.SetGlobalFloat(MistSunlightId, 0.5f * sunReach);
+                // the mist is lit by the sky around it
+                Shader.SetGlobalVector(MistColorId, Color.Lerp(horizon, zenith, 0.3f).linear * 0.9f);
             }
 
             Shader.SetGlobalVector(SunDirection, sunDirection);
@@ -259,7 +283,10 @@ namespace WhiteFox.Client
             Shader.SetGlobalVector(SkyHorizon, horizon.linear * 1.3f);
             Shader.SetGlobalVector(BlockLightColor, new Color(1.0f, 0.72f, 0.42f).linear * BlockLightIntensity);
             Shader.SetGlobalFloat(NightFactor, night);
-            Exposure = Mathf.Lerp(1.0f, 0.2f, Mathf.Clamp01(elevation * 3.0f));
+            // block lights are dimmed by day only while the eye is adapted to daylight; indoors and in caves the eye
+            // adapts to the torches, like it does at night
+            adaptation = Mathf.MoveTowards(adaptation, Mathf.Clamp01(Outdoors), Time.deltaTime * 0.6f);
+            Exposure = Mathf.Lerp(1.0f, Mathf.Lerp(1.0f, 0.2f, Mathf.Clamp01(elevation * 3.0f)), adaptation);
             Shader.SetGlobalFloat(AmbientStrength, Ambient * Mathf.Lerp(0.25f, 1.0f, day));
 
             // the fog takes the color of the sky at the horizon in front of the camera, so distant terrain melts into it

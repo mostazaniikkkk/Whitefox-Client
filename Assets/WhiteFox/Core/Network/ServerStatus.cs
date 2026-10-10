@@ -16,6 +16,8 @@ namespace WhiteFox.Core.Network
         public int OnlinePlayers;
         public int MaxPlayers;
         public string Motd;
+        /// <summary>The MOTD with its colors (§ codes).</summary>
+        public string FormattedMotd;
         public long PingMilliseconds;
         /// <summary>PNG bytes of the server icon, if any.</summary>
         public byte[] Favicon;
@@ -74,6 +76,7 @@ namespace WhiteFox.Core.Network
                 OnlinePlayers = (int?)json["players"]?["online"] ?? 0,
                 MaxPlayers = (int?)json["players"]?["max"] ?? 0,
                 Motd = TextComponent.FromJson(json["description"]).ToPlain(),
+                FormattedMotd = TextComponent.FromJson(json["description"]).ToLegacy(),
             };
             var favicon = (string)json["favicon"];
             const string prefix = "data:image/png;base64,";

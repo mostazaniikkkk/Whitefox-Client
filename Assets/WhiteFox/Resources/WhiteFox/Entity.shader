@@ -124,7 +124,8 @@ Shader "WhiteFox/Entity"
                 {
                     float skyVisibility = _Light.y * _Light.y;
                     Light mainLight = GetMainLight(TransformWorldToShadowCoord(input.positionWS));
-                    float3 direct = mainLight.color * mainLight.shadowAttenuation * saturate(dot(normal, mainLight.direction));
+                    // no sun where the sky never reaches (the shadow map leaks through block seams underground)
+                    float3 direct = mainLight.color * mainLight.shadowAttenuation * saturate(dot(normal, mainLight.direction)) * smoothstep(0.0, 0.35, _Light.y);
                     float3 ambient = WF_SkyAmbient(normal) * skyVisibility * _WF_AmbientStrength;
                     float3 lights = 0;
                 #if defined(_ADDITIONAL_LIGHTS)
@@ -135,7 +136,7 @@ Shader "WhiteFox/Entity"
                     uint additionalLights = GetAdditionalLightsCount();
                     LIGHT_LOOP_BEGIN(additionalLights)
                         Light pointLight = GetAdditionalLight(lightIndex, input.positionWS, half4(1, 1, 1, 1));
-                        lights += pointLight.color * pointLight.distanceAttenuation * pointLight.shadowAttenuation * saturate(dot(normal, pointLight.direction));
+                        lights += pointLight.color * pointLight.distanceAttenuation * (pointLight.shadowAttenuation * saturate(dot(normal, pointLight.direction)) + 0.12);
                     LIGHT_LOOP_END
                 #endif
                     color = texel.rgb * (direct + ambient + lights);

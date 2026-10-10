@@ -27,6 +27,7 @@ namespace WhiteFox.Client
         /// <summary>Options (graphics mode, view distance, FOV, sensitivity, brightness, key bindings).</summary>
         public Settings Settings { get; private set; }
         public bool Modern => Settings.Graphics == GraphicsMode.Modern;
+        public bool Enhanced => Settings.Graphics == GraphicsMode.Enhanced;
         public bool daylightCycle = true;
 
         public GameSession Session { get; private set; }
@@ -36,8 +37,12 @@ namespace WhiteFox.Client
         private string error;
         private BlockTextureArray textures;
         private Material[] classicMaterials;
+        // blocks drawn as entities (dropped, held, falling, in frames): lit like the world in the realistic mode
+        private Material blockItemMaterial;
+        private Shader classicBlockShader, litBlockShader;
         private Material[] realisticMaterials;
         private RealisticEnvironment environment;
+        private EnhancedEffects enhanced;
         private LightSourceManager lightSources;
         private long? pinnedTime;
         private Camera viewCamera;
@@ -130,14 +135,17 @@ namespace WhiteFox.Client
             if (overrides != null) Settings.Override(overrides);
             if (CommandLine.Has("-wf-classic")) Settings.Graphics = GraphicsMode.Classic;
             if (CommandLine.Has("-wf-modern")) Settings.Graphics = GraphicsMode.Modern;
+            if (CommandLine.Has("-wf-enhanced")) Settings.Graphics = GraphicsMode.Enhanced;
+            Settings.ClampGraphics();
 
             SetupCamera();
             environment = new RealisticEnvironment(transform);
+            enhanced = new EnhancedEffects(transform);
             gui = new GuiRenderer(resources.Assets);
             icons = new ItemIcons(resources, gui.Assets, classicMaterials[0]);
             blockEntityModels = new BlockEntityRenderer(gui.Assets, gui.Font, transform);
             icons.SpecialParts = (name, tag) => blockEntityModels.ItemParts(resources, name, tag);
-            itemModels = new ItemModels(resources, icons, classicMaterials[0]);
+            itemModels = new ItemModels(resources, icons, blockItemMaterial);
             sounds = new Audio.SoundManager(resources, transform) { Volumes = Settings.Volumes };
             GuiRenderer.Clicked += OnButtonClicked;
             dynamicLights = new DynamicLights(resources);
@@ -148,6 +156,9 @@ namespace WhiteFox.Client
             inventoryScreen = new InventoryScreen(gui, icons, resources.Items);
             resources.Assets.TryGetText("assets/minecraft/texts/splashes.txt", out var splashes);
             title = new TitleScreen(splashes, Settings);
+            var testServer = CommandLine.Get("-wf-addserver"); // screenshot runs: a server in the list (not saved)
+            if (testServer != null) Settings.Servers.Add(new ServerEntry { Name = "Test Server", Address = testServer });
+            if (CommandLine.Has("-wf-servers")) title.OpenServerList();
             CreatePanorama();
             status = null;
 
@@ -336,6 +347,9 @@ namespace WhiteFox.Client
 
             var classicTranslucent = Translucent(classic, "WhiteFox classic translucent");
             classicMaterials = new[] { Opaque(classic, "WhiteFox classic opaque"), classicTranslucent, classicTranslucent };
+            classicBlockShader = classic;
+            litBlockShader = lit;
+            blockItemMaterial = Opaque(classic, "WhiteFox block items");
 
             var waterMaterial = new Material(water) { name = "WhiteFox water", renderQueue = (int)RenderQueue.Transparent };
             SetTextures(waterMaterial);
@@ -355,10 +369,22 @@ namespace WhiteFox.Client
             var relief = new[] { 0.0f, 1.0f, 2.0f }[Mathf.Clamp(Settings.Relief, 0, 2)];
             realisticMaterials[0].SetFloat("_NormalStrength", relief);
             realisticMaterials[1].SetFloat("_NormalStrength", relief);
+            // the renderers keep their per entity light (_Light), which the lit shader uses instead of the vertex light
+            var itemShader = Modern ? litBlockShader : classicBlockShader;
+            if (blockItemMaterial.shader != itemShader)
+            {
+                blockItemMaterial.shader = itemShader;
+                blockItemMaterial.renderQueue = (int)RenderQueue.AlphaTest;
+                SetTextures(blockItemMaterial);
+            }
+            blockItemMaterial.SetFloat("_NormalStrength", relief);
             var modernMaterials = new[] { realisticMaterials[0], realisticMaterials[1], Settings.RealisticWater ? realisticMaterials[2] : realisticMaterials[1] };
             Renderer.SetMaterials(Modern ? modernMaterials : classicMaterials, Modern && Settings.SunShadows > 0);
             environment.SetEnabled(ModernSky, viewCamera);
             environment.ApplyQuality(Settings, viewCamera);
+            // after the realistic environment: both share the cloud and camera settings
+            enhanced.SetEnabled(Enhanced, viewCamera, Settings);
+            if (!Modern && !Enhanced) Shader.SetGlobalFloat("_WF_WindStrength", 0);
             lightSources.Enabled = Modern && Settings.BlockLights > 0;
             lightSources.MaxLights = new[] { 0, 16, 48, 96 }[Mathf.Clamp(Settings.BlockLights, 0, 3)];
             lightSources.ShadowedLights = Settings.BlockLightShadows;
@@ -474,8 +500,9 @@ namespace WhiteFox.Client
             }
             if (touch.OpenChat && !chat.Open) chat.Show("");
             if (touch.TogglePerspective) input.Perspective = (input.Perspective + 1) % 3;
+            if (touch.ToggleDebug) input.DebugScreen = !input.DebugScreen;
             if (touch.Pause) input.SetCursorLocked(false);
-            touch.OpenInventory = touch.OpenChat = touch.TogglePerspective = touch.Pause = false;
+            touch.OpenInventory = touch.OpenChat = touch.TogglePerspective = touch.ToggleDebug = touch.Pause = false;
         }
 
         /// <summary>
@@ -486,6 +513,11 @@ namespace WhiteFox.Client
         private void HandleEscape()
         {
             if (packOffers.Count > 0 || chat.Open || textScreens.Open) return;
+            if (Session == null && overlay == Overlay.None && title != null && title.Back())
+            {
+                input.EscapeConsumedFrame = Time.frameCount;
+                return;
+            }
             if (overlay != Overlay.None)
             {
                 Settings.Save();
@@ -587,7 +619,7 @@ namespace WhiteFox.Client
             breakOverlay = new BreakOverlay(transform, classicMaterials[1], resources.DestroyStages);
             skins = new SkinManager(session, gui.Assets);
             maps.Assets = gui.Assets;
-            entityRenderer = new EntityRenderer(session, transform, gui.Assets, itemModels, skins, classicMaterials[0]) { Maps = maps };
+            entityRenderer = new EntityRenderer(session, transform, gui.Assets, itemModels, skins, blockItemMaterial) { Maps = maps };
             firstPerson = new FirstPersonRenderer(session, viewCamera, itemModels, skins) { Maps = maps };
             blockEntityRenderer = new BlockEntityRenderer(session, Renderer, transform, gui.Assets, gui.Font, skins);
         }
@@ -658,7 +690,7 @@ namespace WhiteFox.Client
             if (CommandLine.Has("-wf-debug")) input.DebugScreen = true;
             if (input.ToggleRenderMode || ModernSky != environment.Enabled)
             {
-                if (input.ToggleRenderMode) Settings.Graphics = Modern ? GraphicsMode.Classic : GraphicsMode.Modern;
+                if (input.ToggleRenderMode) Settings.Graphics = Settings.NextGraphics(Settings.Graphics);
                 input.ToggleRenderMode = false;
                 ApplyRenderMode();
             }
@@ -696,7 +728,7 @@ namespace WhiteFox.Client
             blockEntityRenderer.Update(partialTick);
             particles.Render(viewCamera, partialTick);
             weather.RealisticSky = environment.Enabled;
-            weather.CloudsEnabled = !(environment.Enabled && environment.VolumetricClouds);
+            weather.CloudsEnabled = !(environment.Enabled && environment.VolumetricClouds) && !enhanced.VolumetricClouds;
             weather.Render(Session, viewCamera, partialTick, Settings.ViewDistance);
             var cameraPosition = viewCamera.transform.position;
             dynamicLights.Update(Session, new Vec3d(cameraPosition.x + RenderOrigin.X, cameraPosition.y, -cameraPosition.z + RenderOrigin.Z), partialTick, lightSources);
@@ -841,6 +873,7 @@ namespace WhiteFox.Client
             environment.Outdoors = (Session.World.GetLight((int)Math.Floor(eye.X), (int)Math.Floor(eye.Y), (int)Math.Floor(eye.Z)) >> 4) / 15f;
             environment.Thunder = overworldWeather ? Session.World.ThunderLevel : 0;
             environment.ViewDirection = viewCamera.transform.forward;
+            enhanced.Update(Session.World.TimeOfDay, sky, fog, environment.Rain, environment.Thunder, overworldWeather);
             if (environment.Enabled) environment.Update(Session.World.TimeOfDay, bossFog ? fogStart : Settings.ViewDistance * 16 * 0.55f, bossFog ? fogEnd : Settings.ViewDistance * 16);
 
             // night vision lights everything up (vanilla: full brightness lightmap)
@@ -1045,7 +1078,9 @@ namespace WhiteFox.Client
             if (panoramaFaces != null) Destroy(panoramaFaces);
             textures?.Dispose();
             environment?.Dispose();
+            enhanced?.Dispose();
             lightSources?.Dispose();
+            if (blockItemMaterial != null) Destroy(blockItemMaterial);
             foreach (var material in (classicMaterials ?? Array.Empty<Material>()))
             {
                 if (material != null) Destroy(material);

@@ -13,6 +13,8 @@ Shader "WhiteFox/BlockLit"
         _Specular ("LabPBR specular (_s)", 2DArray) = "" {}
         _Cutoff ("Alpha cutoff", Range(0, 1)) = 0.1
         _NormalStrength ("Normal strength", Range(0, 2)) = 1
+        // block items (dropped, held, in frames) set the light where the entity is; chunks keep their vertex light
+        _Light ("Light override (block, sky; negative: vertex light)", Vector) = (-1, -1, 0, 0)
         [Enum(UnityEngine.Rendering.BlendMode)] _SrcBlend ("Src blend", Float) = 1
         [Enum(UnityEngine.Rendering.BlendMode)] _DstBlend ("Dst blend", Float) = 0
         [Toggle] _ZWrite ("ZWrite", Float) = 1
@@ -33,6 +35,7 @@ Shader "WhiteFox/BlockLit"
         CBUFFER_START(UnityPerMaterial)
             float _Cutoff;
             float _NormalStrength;
+            float4 _Light;
         CBUFFER_END
 
         struct Attributes
@@ -42,8 +45,10 @@ Shader "WhiteFox/BlockLit"
             float4 uv0 : TEXCOORD0;    // u, v, layer, ambient occlusion
             float2 light : TEXCOORD1;  // block light, sky light
             float4 normal : TEXCOORD2; // normal, w = emission
-            float4 tangent : TEXCOORD3;
+            float4 tangent : TEXCOORD3; // tangent, w = bitangent sign; |w| < 0.95: plant swaying in the wind (WhiteFoxWind.hlsl)
         };
+
+        #include "WhiteFoxWind.hlsl"
         ENDHLSL
 
         Pass
@@ -85,12 +90,14 @@ Shader "WhiteFox/BlockLit"
             {
                 Varyings output;
                 output.positionWS = TransformObjectToWorld(input.positionOS);
+                output.positionWS += WindOffset(output.positionWS, input.tangent.w);
                 output.positionCS = TransformWorldToHClip(output.positionWS);
                 output.uv = input.uv0.xyz;
                 output.tintAO = float4(WF_Linear(input.color.rgb), input.uv0.w);
                 output.normalWS = TransformObjectToWorldNormal(input.normal.xyz);
                 output.tangentWS = float4(TransformObjectToWorldDir(input.tangent.xyz), input.tangent.w >= 0.0 ? 1.0 : -1.0);
-                output.lightEmission = float3(input.light, max(input.normal.w, 0.0));
+                float2 light = _Light.x >= 0.0 ? _Light.xy : input.light;
+                output.lightEmission = float3(light, max(input.normal.w, 0.0));
                 output.fog = ComputeFogFactor(output.positionCS.z);
                 return output;
             }
@@ -123,10 +130,11 @@ Shader "WhiteFox/BlockLit"
                 float blockLight = input.lightEmission.x;
                 float skyLight = input.lightEmission.y;
                 float skyVisibility = skyLight * skyLight;
-                // the shadow map decides where the sun reaches; only beyond the shadow distance the (smoothed) sky
-                // light keeps caves from being lit by the sun
+                // the shadow map shapes where the sun reaches; the (per vertex smoothed) sky light keeps it out of places
+                // the sky never reaches, like caves under solid ground: the shadow map leaks thin lines of light
+                // through the seams between blocks there. Beyond the shadow distance only the sky light decides.
                 float distanceToCamera = distance(input.positionWS, _WorldSpaceCameraPos);
-                float sunGate = lerp(1.0, smoothstep(0.3, 0.9, skyLight), saturate((distanceToCamera - 110.0) / 15.0));
+                float sunGate = lerp(smoothstep(0.0, 0.35, skyLight), smoothstep(0.3, 0.9, skyLight), saturate((distanceToCamera - 110.0) / 15.0));
                 float ao = input.tintAO.a * normalTex.b;
 
                 float3 viewDirection = GetWorldSpaceNormalizeViewDir(input.positionWS);
@@ -150,6 +158,8 @@ Shader "WhiteFox/BlockLit"
                 LIGHT_LOOP_BEGIN(additionalLights)
                     Light pointLight = GetAdditionalLight(lightIndex, input.positionWS, half4(1, 1, 1, 1));
                     color += LightingPhysicallyBased(brdf, pointLight, normal, viewDirection) * (0.35 + 0.65 * ao);
+                    // light bounced by the walls around: a soft fill that also reaches faces turned away and shadows
+                    color += brdf.diffuse * pointLight.color * pointLight.distanceAttenuation * 0.12 * ao;
                 LIGHT_LOOP_END
             #endif
 
@@ -178,10 +188,12 @@ Shader "WhiteFox/BlockLit"
             #pragma vertex Vert
             #pragma fragment Frag
             #pragma require 2darray
+            #pragma multi_compile_vertex _ _CASTING_PUNCTUAL_LIGHT_SHADOW
             #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/CommonMaterial.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Shadows.hlsl"
 
             float3 _LightDirection;
+            float3 _LightPosition;
 
             struct Varyings
             {
@@ -193,12 +205,23 @@ Shader "WhiteFox/BlockLit"
             {
                 Varyings output;
                 float3 positionWS = TransformObjectToWorld(input.positionOS);
+                positionWS += WindOffset(positionWS, input.tangent.w);
                 float3 normalWS = TransformObjectToWorldNormal(input.normal.xyz);
-                float4 positionCS = TransformWorldToHClip(ApplyShadowBias(positionWS, normalWS, _LightDirection));
+            #if defined(_CASTING_PUNCTUAL_LIGHT_SHADOW)
+                float3 lightDirection = normalize(_LightPosition - positionWS);
+            #else
+                float3 lightDirection = _LightDirection;
+            #endif
+                float4 positionCS = TransformWorldToHClip(ApplyShadowBias(positionWS, normalWS, lightDirection));
             #if UNITY_REVERSED_Z
                 positionCS.z = min(positionCS.z, UNITY_NEAR_CLIP_VALUE);
             #else
                 positionCS.z = max(positionCS.z, UNITY_NEAR_CLIP_VALUE);
+            #endif
+            #if defined(_CASTING_PUNCTUAL_LIGHT_SHADOW)
+                // light sources don't shadow their own light: the stick of a torch right under the flame would throw
+                // a big dark patch on the wall behind it (the light sits in the emitting block)
+                if (input.normal.w > 0.0) positionCS = float4(0.0, 0.0, 0.0, 0.0);
             #endif
                 output.positionCS = positionCS;
                 output.uv = input.uv0.xyz;
@@ -236,7 +259,8 @@ Shader "WhiteFox/BlockLit"
             Varyings Vert(Attributes input)
             {
                 Varyings output;
-                output.positionCS = TransformObjectToHClip(input.positionOS);
+                float3 positionWS = TransformObjectToWorld(input.positionOS);
+                output.positionCS = TransformWorldToHClip(positionWS + WindOffset(positionWS, input.tangent.w));
                 output.uv = input.uv0.xyz;
                 return output;
             }

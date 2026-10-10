@@ -13,8 +13,10 @@ namespace WhiteFox.Client
     {
         /// <summary>Minosoft's look: Minecraft light levels, no real lights.</summary>
         Classic,
-        /// <summary>Sun shadows, real point lights, PBR (LabPBR), water, sky and post processing.</summary>
+        /// <summary>Sun shadows, real point lights, PBR (LabPBR), water, sky and post processing (not on phones).</summary>
         Modern,
+        /// <summary>The classic look plus motion blur, volumetric clouds and leaves and plants in the wind.</summary>
+        Enhanced,
     }
 
     /// <summary>A rebindable action (Minosoft's KeyBinding, keyboard only).</summary>
@@ -89,9 +91,38 @@ namespace WhiteFox.Client
     }
 
     /// <summary>Client options (Minosoft's profiles), stored in config.toml.</summary>
+    /// <summary>A server of the multiplayer screen.</summary>
+    public sealed class ServerEntry
+    {
+        public string Name;
+        public string Address;
+    }
+
     public sealed class Settings
     {
         public GraphicsMode Graphics = GraphicsMode.Modern;
+
+        /// <summary>The realistic (modern) mode needs a desktop GPU; phones get classic and enhanced.</summary>
+        public static bool ModernAvailable => !Application.isMobilePlatform;
+
+        public static string GraphicsName(GraphicsMode mode) => mode == GraphicsMode.Modern ? "Modern" : mode == GraphicsMode.Enhanced ? "Enhanced" : "Classic";
+
+        /// <summary>The next mode of the graphics button and key: classic, enhanced, modern (where available).</summary>
+        public static GraphicsMode NextGraphics(GraphicsMode mode)
+        {
+            if (mode == GraphicsMode.Classic) return GraphicsMode.Enhanced;
+            if (mode == GraphicsMode.Enhanced && ModernAvailable) return GraphicsMode.Modern;
+            return GraphicsMode.Classic;
+        }
+
+        private static GraphicsMode ParseGraphics(string value) =>
+            value == "classic" ? GraphicsMode.Classic : value == "enhanced" ? GraphicsMode.Enhanced : GraphicsMode.Modern;
+
+        /// <summary>A modern setting on a phone (an old config, a test override) falls back to enhanced.</summary>
+        public void ClampGraphics()
+        {
+            if (Graphics == GraphicsMode.Modern && !ModernAvailable) Graphics = GraphicsMode.Enhanced;
+        }
         public int ViewDistance = 8;
         public float FieldOfView = 70;
         public float MouseSensitivity = 0.15f;
@@ -117,6 +148,14 @@ namespace WhiteFox.Client
         public int VolumetricLight = 1;
         /// <summary>Clouds of the realistic mode: 0 the vanilla boxes, 1 volumetric (low), 2 volumetric (high).</summary>
         public int VolumetricClouds = 1;
+        /// <summary>Volumetric ground mist: 0 off, 1 light, 2 dense.</summary>
+        public int Mist = 1;
+        /// <summary>Leaves and plants sway in the wind (enhanced and modern).</summary>
+        public bool WavingPlants = true;
+        /// <summary>Enhanced mode: motion blur 0 off, 1 low, 2 high.</summary>
+        public int EnhancedMotionBlur = 1;
+        /// <summary>Enhanced mode: clouds 0 the vanilla boxes, 1 volumetric, 2 volumetric (high).</summary>
+        public int EnhancedClouds = 1;
 
         /// <summary>Volume per sound category (master, music, records, weather, blocks, hostile, neutral, players, ambient, voice).</summary>
         public readonly float[] Volumes = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 };
@@ -126,7 +165,7 @@ namespace WhiteFox.Client
         /// <summary>Server resource packs: 0 ask, 1 always accept, 2 decline (required packs are still asked).</summary>
         public int ServerPacks;
 
-        /// <summary>Internal resolution of the 3D view, 0.5 .. 1 of the window (the GUI stays sharp).</summary>
+        /// <summary>Internal resolution of the 3D view, 0.25 .. 1 of the window (the GUI stays sharp).</summary>
         public float RenderScale = 1;
         /// <summary>Frame rate limit, 0 = unlimited.</summary>
         public int MaxFps = 60;
@@ -143,9 +182,11 @@ namespace WhiteFox.Client
         /// <summary>Touch controls: 0 auto (phones and tablets), 1 always, 2 never.</summary>
         public int TouchControls;
 
-        /// <summary>Title screen: the last server and the name of offline accounts.</summary>
+        /// <summary>Title screen: the last direct connection address and the name of offline accounts.</summary>
         public string Address = "localhost";
         public string OfflineName = "WhiteFox";
+        /// <summary>The saved servers of the multiplayer screen.</summary>
+        public readonly List<ServerEntry> Servers = new List<ServerEntry>();
 
         public readonly KeyBinding Forward = new KeyBinding("forward", "Walk Forwards", Key.W);
         public readonly KeyBinding Back = new KeyBinding("back", "Walk Backwards", Key.S);
@@ -212,11 +253,11 @@ namespace WhiteFox.Client
             }
 
             var video = root.Table("video");
-            Graphics = video.GetString("graphics") == "classic" ? GraphicsMode.Classic : GraphicsMode.Modern;
-            ViewDistance = Mathf.Clamp(video.GetInt("view_distance", ViewDistance), 2, 32);
+            Graphics = ParseGraphics(video.GetString("graphics"));
+            ViewDistance = Mathf.Clamp(video.GetInt("view_distance", ViewDistance), 2, 64);
             FieldOfView = video.GetFloat("fov", FieldOfView);
             Brightness = video.GetFloat("brightness", Brightness);
-            RenderScale = Mathf.Clamp(video.GetFloat("render_scale", RenderScale), 0.5f, 1);
+            RenderScale = Mathf.Clamp(video.GetFloat("render_scale", RenderScale), 0.25f, 1);
             MaxFps = video.GetInt("max_fps", MaxFps);
             if (MaxFps != 0) MaxFps = Mathf.Clamp(MaxFps, 15, 1000);
             var quality = video.Table("quality");
@@ -231,6 +272,11 @@ namespace WhiteFox.Client
             WaterReflections = Mathf.Clamp(quality.GetInt("water_reflections", WaterReflections), 0, 2);
             VolumetricLight = Mathf.Clamp(quality.GetInt("volumetric_light", VolumetricLight), 0, 2);
             VolumetricClouds = Mathf.Clamp(quality.GetInt("volumetric_clouds", VolumetricClouds), 0, 2);
+            Mist = Mathf.Clamp(quality.GetInt("mist", Mist), 0, 2);
+            WavingPlants = quality.GetBool("waving_plants", WavingPlants);
+            var enhanced = root.Table("enhanced");
+            EnhancedMotionBlur = Mathf.Clamp(enhanced.GetInt("motion_blur", EnhancedMotionBlur), 0, 2);
+            EnhancedClouds = Mathf.Clamp(enhanced.GetInt("clouds", EnhancedClouds), 0, 2);
 
             var controls = root.Table("controls");
             MouseSensitivity = controls.GetFloat("mouse_sensitivity", MouseSensitivity);
@@ -254,6 +300,17 @@ namespace WhiteFox.Client
             var multiplayer = root.Table("multiplayer");
             Address = multiplayer.GetString("address", Address);
             OfflineName = multiplayer.GetString("offline_name", OfflineName);
+            Servers.Clear();
+            foreach (var server in multiplayer.Tables("servers"))
+            {
+                var address = server.GetString("address");
+                if (!string.IsNullOrWhiteSpace(address)) Servers.Add(new ServerEntry { Name = server.GetString("name", "Minecraft Server"), Address = address });
+            }
+            // earlier versions only had the address field: it becomes the first saved server
+            if (!multiplayer.GetBool("server_list", false) && !string.IsNullOrWhiteSpace(Address) && Address != "localhost")
+            {
+                Servers.Add(new ServerEntry { Name = "Minecraft Server", Address = Address });
+            }
         }
 
         /// <summary>False for automated test runs: their command line overrides must not end up in the user's config.</summary>
@@ -264,7 +321,7 @@ namespace WhiteFox.Client
             if (!Persist) return;
             var root = new TomlTable();
             var video = root.Table("video");
-            video["graphics"] = Graphics == GraphicsMode.Classic ? "classic" : "modern";
+            video["graphics"] = Graphics == GraphicsMode.Classic ? "classic" : Graphics == GraphicsMode.Enhanced ? "enhanced" : "modern";
             video["view_distance"] = (long)ViewDistance;
             video["fov"] = Real(FieldOfView);
             video["brightness"] = Real(Brightness);
@@ -282,6 +339,11 @@ namespace WhiteFox.Client
             quality["water_reflections"] = (long)WaterReflections;
             quality["volumetric_light"] = (long)VolumetricLight;
             quality["volumetric_clouds"] = (long)VolumetricClouds;
+            quality["mist"] = (long)Mist;
+            quality["waving_plants"] = WavingPlants;
+            var enhanced = root.Table("enhanced");
+            enhanced["motion_blur"] = (long)EnhancedMotionBlur;
+            enhanced["clouds"] = (long)EnhancedClouds;
 
             var controls = root.Table("controls");
             controls["mouse_sensitivity"] = Real(MouseSensitivity);
@@ -300,6 +362,16 @@ namespace WhiteFox.Client
             var multiplayer = root.Table("multiplayer");
             multiplayer["address"] = Address ?? "";
             multiplayer["offline_name"] = OfflineName ?? "";
+            var servers = new List<TomlTable>();
+            foreach (var server in Servers)
+            {
+                var table = new TomlTable();
+                table["name"] = server.Name ?? "";
+                table["address"] = server.Address ?? "";
+                servers.Add(table);
+            }
+            multiplayer["servers"] = servers;
+            multiplayer["server_list"] = true; // the list exists (an empty list writes no [[servers]])
 
             var path = ConfigPath;
             try
@@ -331,7 +403,7 @@ namespace WhiteFox.Client
                 float.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var real);
                 switch (key)
                 {
-                    case "graphics": Graphics = value == "classic" ? GraphicsMode.Classic : GraphicsMode.Modern; break;
+                    case "graphics": Graphics = ParseGraphics(value); break;
                     case "view": ViewDistance = number; break;
                     case "sun_shadows": SunShadows = number; break;
                     case "block_lights": BlockLights = number; break;
@@ -344,6 +416,10 @@ namespace WhiteFox.Client
                     case "water_reflections": WaterReflections = number; break;
                     case "volumetric": VolumetricLight = number; break;
                     case "clouds": VolumetricClouds = number; break;
+                    case "mist": Mist = number; break;
+                    case "waving_plants": WavingPlants = number != 0; break;
+                    case "enhanced_blur": EnhancedMotionBlur = number; break;
+                    case "enhanced_clouds": EnhancedClouds = number; break;
                     case "render_scale": RenderScale = real; break;
                 }
             }
@@ -386,6 +462,14 @@ namespace WhiteFox.Client
         }
 
         /// <summary>Presets for the modern graphics: 0 low, 1 medium, 2 high, 3 ultra.</summary>
+        /// <summary>Enhanced presets: low (vanilla clouds, no blur), medium, high.</summary>
+        public void ApplyEnhancedPreset(int preset)
+        {
+            EnhancedMotionBlur = preset;
+            EnhancedClouds = preset;
+            WavingPlants = true;
+        }
+
         public void ApplyPreset(int preset)
         {
             SunShadows = new[] { 1, 2, 3, 3 }[preset];

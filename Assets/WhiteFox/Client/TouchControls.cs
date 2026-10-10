@@ -14,7 +14,7 @@ namespace WhiteFox.Client
     /// <summary>
     /// Touch controls like Minecraft: Pocket/Bedrock Edition with "split controls": a D-pad (with the diagonal
     /// buttons while walking forward and the sneak toggle in the middle), jump / fly buttons, tappable hotbar,
-    /// inventory, chat, perspective and pause buttons. Dragging anywhere else looks around; blocks are still aimed with
+    /// inventory, chat, perspective, debug screen (F3) and pause buttons. Dragging anywhere else looks around; blocks are still aimed with
     /// the crosshair in the middle of the screen: holding the finger still breaks (or uses the held food, bow…),
     /// a short tap places / uses, or attacks the entity under the crosshair.
     /// </summary>
@@ -31,6 +31,7 @@ namespace WhiteFox.Client
             Inventory,
             Chat,
             Perspective,
+            Debug,
             Pause,
         }
 
@@ -74,6 +75,7 @@ namespace WhiteFox.Client
         public bool OpenInventory;
         public bool OpenChat;
         public bool TogglePerspective;
+        public bool ToggleDebug;
         public bool Pause;
 
         /// <summary>Forced by -wf-touch: the mouse simulates a touchscreen (testing on a PC).</summary>
@@ -181,6 +183,9 @@ namespace WhiteFox.Client
 
             movement.Forwards = Mathf.Clamp(movement.Forwards + forwards, -1, 1);
             movement.Sideways = Mathf.Clamp(movement.Sideways + sideways, -1, 1);
+            // a quick tap is shorter than a game tick (50 ms) or even begins and ends in one frame: keep the jump held
+            // long enough for the next ticks to see it
+            if (Time.realtimeSinceStartupAsDouble < jumpHeldUntil) jump = true;
             movement.Jump |= jump;
             movement.Sneak |= sneakToggled || flyDown;
             movement.Upwards = (movement.Jump ? 1 : 0) - (movement.Sneak ? 1 : 0);
@@ -190,6 +195,8 @@ namespace WhiteFox.Client
         }
 
         private int tapUseFrames;
+        private double jumpHeldUntil;
+        private const double MinJumpSeconds = 0.15;
 
         private void OnBegan(Finger finger, Vector2 position, GameSession session)
         {
@@ -201,6 +208,7 @@ namespace WhiteFox.Client
                     break;
                 case Control.Jump:
                     session.Input.JumpPressed = true; // double tap: start or stop flying
+                    jumpHeldUntil = Time.realtimeSinceStartupAsDouble + MinJumpSeconds;
                     break;
                 case Control.Hotbar:
                     var slot = Mathf.FloorToInt((position.x - (Mathf.Floor(width / 2) - 91)) / 20);
@@ -214,6 +222,9 @@ namespace WhiteFox.Client
                     break;
                 case Control.Perspective:
                     TogglePerspective = true;
+                    break;
+                case Control.Debug:
+                    ToggleDebug = true;
                     break;
                 case Control.Pause:
                     Pause = true;
@@ -238,6 +249,7 @@ namespace WhiteFox.Client
         private Rect PauseRect => new Rect(width - Margin - 20, 4, 20, 20);
         private Rect ChatRect => new Rect(width - Margin - 44, 4, 20, 20);
         private Rect PerspectiveRect => new Rect(width - Margin - 68, 4, 20, 20);
+        private Rect DebugRect => new Rect(width - Margin - 92, 4, 20, 20);
 
         private bool Flying;
 
@@ -274,6 +286,7 @@ namespace WhiteFox.Client
             if (PauseRect.Contains(position)) return Control.Pause;
             if (ChatRect.Contains(position)) return Control.Chat;
             if (PerspectiveRect.Contains(position)) return Control.Perspective;
+            if (DebugRect.Contains(position)) return Control.Debug;
             return Control.Look;
         }
 
@@ -309,6 +322,7 @@ namespace WhiteFox.Client
             DrawButton(gui, PauseRect, "pause", false);
             DrawButton(gui, ChatRect, "chat", false);
             DrawButton(gui, PerspectiveRect, "eye", false);
+            DrawButton(gui, DebugRect, "debug", false);
         }
 
         private void DrawButton(GuiRenderer gui, Rect rect, string icon, bool pressed)
@@ -336,6 +350,7 @@ namespace WhiteFox.Client
             { "dots", new[] { ".........", ".........", ".........", ".........", "##.##.##.", "##.##.##.", ".........", ".........", "........." } },
             { "pause", new[] { ".........", ".##...##.", ".##...##.", ".##...##.", ".##...##.", ".##...##.", ".##...##.", ".##...##.", "........." } },
             { "chat", new[] { ".........", "#########", "#.......#", "#.##.##.#", "#.......#", "#########", "..##.....", ".#.......", "........." } },
+            { "debug", new[] { ".........", "......##.", "......##.", "...##.##.", "...##.##.", "##.##.##.", "##.##.##.", "##.##.##.", "........." } },
             { "eye", new[] { ".........", ".........", "..#####..", ".#..#..#.", "#..###..#", ".#..#..#.", "..#####..", ".........", "........." } },
         };
 

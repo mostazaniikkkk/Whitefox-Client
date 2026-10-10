@@ -53,7 +53,16 @@ Shader "WhiteFox/Block"
             float4 uv0 : TEXCOORD0;   // u, v, texture layer, ambient occlusion
             float4 color : COLOR;     // tint, alpha = direction shade
             float2 light : TEXCOORD1; // block light, sky light (0..1)
+            float4 tangent : TEXCOORD3; // w: sway in the wind (enhanced mode, WhiteFoxWind.hlsl)
         };
+
+        #include "WhiteFoxWind.hlsl"
+
+        float3 SwayedWorldPosition(Attributes input)
+        {
+            float3 positionWS = TransformObjectToWorld(input.positionOS);
+            return positionWS + WindOffset(positionWS, input.tangent.w);
+        }
 
         // vanilla lightmap curve: level / (4 - 3 * level)
         float3 Lightmap(float2 light)
@@ -106,12 +115,12 @@ Shader "WhiteFox/Block"
             Varyings Vert(Attributes input)
             {
                 Varyings output;
-                VertexPositionInputs position = GetVertexPositionInputs(input.positionOS);
-                output.positionCS = position.positionCS;
+                float3 positionWS = SwayedWorldPosition(input);
+                output.positionCS = TransformWorldToHClip(positionWS);
                 output.uv = input.uv0.xyz;
-                float2 light = float2(DynamicBlockLight(position.positionWS, input.light.x), input.light.y);
+                float2 light = float2(DynamicBlockLight(positionWS, input.light.x), input.light.y);
                 output.color = float4(ToRenderSpace(input.color.rgb * input.color.a * input.uv0.w * Lightmap(light)), 1.0);
-                output.fog = ComputeFogFactor(position.positionCS.z);
+                output.fog = ComputeFogFactor(output.positionCS.z);
                 return output;
             }
 
@@ -149,7 +158,7 @@ Shader "WhiteFox/Block"
             Varyings Vert(Attributes input)
             {
                 Varyings output;
-                output.positionCS = TransformObjectToHClip(input.positionOS);
+                output.positionCS = TransformWorldToHClip(SwayedWorldPosition(input));
                 output.uv = input.uv0.xyz;
                 return output;
             }

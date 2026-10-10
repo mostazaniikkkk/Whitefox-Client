@@ -204,7 +204,7 @@ namespace WhiteFox.Client.Gui
         {
             var previous = GUI.color;
             var current = color;
-            bool bold = false, underline = false, strike = false, obfuscated = false;
+            bool bold = false, underline = false, strike = false, obfuscated = false, italic = false;
             if (white == null) white = Texture2D.whiteTexture;
             Color Shadowed(Color value) => isShadow ? new Color(value.r * 0.25f, value.g * 0.25f, value.b * 0.25f, color.a) : new Color(value.r, value.g, value.b, color.a);
             for (var i = 0; i < text.Length; i++)
@@ -216,22 +216,23 @@ namespace WhiteFox.Client.Gui
                     if (code == '#' && TryHex(text, i, out var hex))
                     {
                         current = Shadowed(hex);
-                        bold = underline = strike = obfuscated = false;
+                        bold = underline = strike = obfuscated = italic = false;
                     }
                     else if (code == 'r')
                     {
                         current = isShadow ? new Color(color.r, color.g, color.b, color.a) : color;
-                        bold = underline = strike = obfuscated = false;
+                        bold = underline = strike = obfuscated = italic = false;
                     }
                     else if ("0123456789abcdef".IndexOf(code) >= 0)
                     {
                         current = Shadowed(FormattingColor(code, color));
-                        bold = underline = strike = obfuscated = false;
+                        bold = underline = strike = obfuscated = italic = false;
                     }
                     else if (code == 'l') bold = true;
                     else if (code == 'n') underline = true;
                     else if (code == 'm') strike = true;
                     else if (code == 'k') obfuscated = true;
+                    else if (code == 'o') italic = true;
                     i += length - 1;
                     continue;
                 }
@@ -251,8 +252,19 @@ namespace WhiteFox.Client.Gui
                     }
                     if (obfuscated) glyph = RandomGlyph(glyph.Advance) ?? glyph;
                     GUI.color = current;
+                    var matrix = GUI.matrix;
+                    if (italic)
+                    {
+                        // vanilla italic: the glyph leans one pixel to the right at its top (a shear around the baseline)
+                        var shear = Matrix4x4.identity;
+                        var baseline = y + 7;
+                        shear.m01 = -1f / 7f;
+                        shear.m03 = baseline / 7f;
+                        GUI.matrix = matrix * shear;
+                    }
                     GUI.DrawTextureWithTexCoords(new Rect(x, y + glyph.Top, glyph.Width, glyph.Height), glyph.Texture, glyph.UV);
                     if (bold) GUI.DrawTextureWithTexCoords(new Rect(x + 1, y + glyph.Top, glyph.Width, glyph.Height), glyph.Texture, glyph.UV);
+                    if (italic) GUI.matrix = matrix;
                     advance = glyph.Advance;
                 }
                 if (bold) advance += 1;

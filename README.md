@@ -40,6 +40,10 @@ The first start downloads about 25 MB of game data.
   players, latency).
 - Joins **offline mode** servers with a name (no premium accounts); addresses use SRV records like vanilla (Aternos and
   similar hosts). Online mode servers are refused with a message.
+- Multiplayer screen like vanilla's: saved servers with their icon, MOTD, player count and ping; add, edit, delete,
+  refresh and direct connect. The list is kept in `config.toml`.
+- Items renamed in an anvil show their name (italic, with its colors) in tooltips and above the hotbar; on touch
+  screens the name of the item you pick up in the inventory shows above your finger.
 - Chat and commands (T or /) with colors, hex colors, bold, underline, strikethrough, obfuscated text, clickable links
   (with confirmation), command suggestions, copy, and hover text; translations from the game's language files.
 - Server resource packs (offer, download, SHA-1 check, status replies, removal), with vanilla's prompt or an
@@ -66,10 +70,19 @@ The first start downloads about 25 MB of game data.
 - **Dynamic lights** (an OptiFine-style improvement): torches, lanterns, glowstone… held by you, other players or mobs,
   glowing dropped items and burning entities light their surroundings.
 
-### Realistic mode (F6)
+### Graphics modes (F6)
 
-On by default; F6 switches to the classic look (Minosoft/vanilla). `-wf-classic` starts in classic mode.
+F6 (or Options → Graphics) cycles through three modes:
 
+- **Classic:** the Minosoft/vanilla look. `-wf-classic` starts in it.
+- **Enhanced:** the classic look plus camera motion blur, volumetric clouds and leaves and plants swaying in the wind.
+  Light enough for phones. `-wf-enhanced` starts in it.
+- **Modern (realistic):** on by default on PC, described below. Not available on Android, where the GPU can't keep up
+  with it. `-wf-modern` starts in it.
+
+### Realistic mode
+
+- **Leaves and plants** sway in the wind, harder in rain and storms.
 - **Sun and moon** as a directional light with cascaded shadows following the time of day; ACES tonemapping, bloom
   and color grading, optional camera motion blur.
 - **Sky and atmosphere:** analytic single scattering (Rayleigh + Mie) for deep blue skies, orange sunrises and
@@ -84,7 +97,7 @@ On by default; F6 switches to the classic look (Minosoft/vanilla). `-wf-classic`
 - **Water** with animated waves (calmer in the distance), **screen space reflections** of the scene, Fresnel sky
   reflection, sun glints, refraction and depth-based absorption; emissive lava with bloom.
 - Quality presets (low/medium/high/ultra) for sun shadows, number of real lights, shadowed lights, relief, water,
-  reflections, god rays, clouds, bloom, post-processing and motion blur. Internal resolution 50–100 % and a frame rate
+  reflections, god rays, clouds, bloom, post-processing and motion blur. Internal resolution 25–100 % and a frame rate
   limit (15 fps to unlimited, 60 by default) in the options.
 - Light sources are grouped and culled (frustum, cave culling, distance) so worlds with thousands of them (lava
   lakes) stay fast; sections only draw the parts they have.
@@ -195,7 +208,7 @@ Everything is stored in `%USERPROFILE%\AppData\LocalLow\WhiteFox\WhiteFox` (Unit
 | F11 | Fullscreen |
 | F3 | Debug screen |
 | F5 | First / third person |
-| F6 | Realistic / classic graphics |
+| F6 | Graphics mode: classic / enhanced / modern |
 | Tab | Player list |
 | T, / | Chat / command |
 | Esc | Pause menu |
@@ -268,12 +281,11 @@ Deliberate differences from Minosoft:
 
 ## Roadmap
 
-1. Saved server list (with ping, MOTD and icon).
-2. A web build (WebGL) through the BambiettaServer WebSocket backend.
-3. Remaining approximations: the dragon's neck and tail do not follow its flight path (vanilla uses the position
+1. A web build (WebGL) through the BambiettaServer WebSocket backend.
+2. Remaining approximations: the dragon's neck and tail do not follow its flight path (vanilla uses the position
    history), the wither's side heads do not track targets, horse jump strength uses the average (the attribute is not
    sent to the client), and banners/shields in hand are drawn without their patterns.
-4. Display entities (text/item/block displays), the wind charge, cloud shadows on the terrain.
+3. Display entities (text/item/block displays), the wind charge, cloud shadows on the terrain.
 
 ## License
 

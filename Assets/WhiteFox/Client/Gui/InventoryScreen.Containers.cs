@@ -154,7 +154,7 @@ namespace WhiteFox.Client.Gui
             {
                 if (sentName == null)
                 {
-                    rename.Text = input.Item.DisplayName;
+                    rename.Text = input.CustomNamePlain ?? input.Item.DisplayName;
                     sentName = rename.Text;
                 }
                 rename.Draw(gui, new Rect(panel.x + 61, panel.y + 24, 103, 12), false);

@@ -21,11 +21,9 @@ namespace WhiteFox.Client.Gui
             Quit,
         }
 
-        public readonly GuiTextField Address = new GuiTextField { MaxLength = 255, Placeholder = "localhost" };
         public readonly GuiTextField Username = new GuiTextField { MaxLength = 16, Placeholder = "WhiteFox" };
-        private volatile string pingResult;
-        private volatile bool pingFailed;
-        private volatile bool pinging;
+        private readonly ServerListScreen servers;
+        private bool serverList;
         private string splash;
         private readonly System.Collections.Generic.List<string> splashes = new System.Collections.Generic.List<string>();
 
@@ -34,7 +32,7 @@ namespace WhiteFox.Client.Gui
         public TitleScreen(string splashes, Settings settings)
         {
             this.settings = settings;
-            Address.Text = settings.Address;
+            servers = new ServerListScreen(settings);
             Username.Text = settings.OfflineName;
             foreach (var line in (splashes ?? "").Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries))
             {
@@ -45,8 +43,39 @@ namespace WhiteFox.Client.Gui
             this.splashes.Add("Minosoft in Unity!");
         }
 
+        /// <summary>The server chosen in the multiplayer screen (after <see cref="Action.Connect"/>).</summary>
+        public string AddressText { get; private set; }
+
+        /// <summary>Opens the multiplayer screen (the Multiplayer button, or -wf-servers for tests).</summary>
+        public void OpenServerList()
+        {
+            serverList = true;
+            servers.Open();
+        }
+
+        /// <summary>Esc: back one page of the multiplayer screen, or from it to the title. False on the title itself.</summary>
+        public bool Back()
+        {
+            if (!serverList) return false;
+            if (!servers.Back()) serverList = false;
+            return true;
+        }
+
         public Action Draw(GuiRenderer gui, string message)
         {
+            if (serverList)
+            {
+                switch (servers.Draw(gui))
+                {
+                    case ServerListScreen.Result.Join:
+                        AddressText = servers.JoinAddress;
+                        return Submit();
+                    case ServerListScreen.Result.Back:
+                        serverList = false;
+                        break;
+                }
+                return Action.None;
+            }
             var center = Mathf.Floor(gui.Width / 2);
             var top = Mathf.Floor(gui.Height / 4);
             if (splash == null)
@@ -65,30 +94,29 @@ namespace WhiteFox.Client.Gui
             DrawSplash(gui, center + 100, top + 6);
 
             var y = top + 14;
-            gui.Text("Server Address", center - 100, y, GuiRenderer.Gray);
-            if (Address.Draw(gui, new Rect(center - 100, y + 10, 200, 20))) return Submit();
             gui.Text("Name", center - 100, y + 36, GuiRenderer.Gray);
-            if (Username.Draw(gui, new Rect(center - 100, y + 46, 200, 20))) return Submit();
+            Username.Draw(gui, new Rect(center - 100, y + 46, 200, 20));
 
             var action = Action.None;
-            if (gui.Button(new Rect(center - 100, y + 74, 200, 20), "Join Server")) action = Submit();
-            if (gui.Button(new Rect(center - 100, y + 98, 98, 20), pinging ? "..." : "Ping", !pinging)) Ping();
-            if (gui.Button(new Rect(center + 2, y + 98, 98, 20), "Options...")) action = Action.Options;
-            if (gui.Button(new Rect(center - 100, y + 122, 200, 20), "Quit Game")) action = Action.Quit;
-
-            var info = message ?? pingResult;
-            if (info != null)
+            if (gui.Button(new Rect(center - 100, y + 74, 200, 20), "Multiplayer"))
             {
-                var lines = gui.Wrap(info, 300);
-                var lineY = y + 150;
-                foreach (var line in lines)
+                Save();
+                OpenServerList();
+            }
+            if (gui.Button(new Rect(center - 100, y + 98, 98, 20), "Options...")) action = Action.Options;
+            if (gui.Button(new Rect(center + 2, y + 98, 98, 20), "Quit Game")) action = Action.Quit;
+
+            if (message != null)
+            {
+                var lineY = y + 126;
+                foreach (var line in gui.Wrap(message, 300))
                 {
-                    gui.TextCentered(line, center, lineY, message != null || pingFailed ? GuiRenderer.Red : Color.white);
+                    gui.TextCentered(line, center, lineY, GuiRenderer.Red);
                     lineY += GuiFont.LineHeight + 1;
                 }
             }
 
-            gui.Text("WhiteFox 2.1 (" + Protocol.VersionName + ")", 2, gui.Height - 10);
+            gui.Text("WhiteFox 2.2 (" + Protocol.VersionName + ")", 2, gui.Height - 10);
             gui.TextRight("Based on Minosoft. Not affiliated with Mojang", gui.Width - 2, gui.Height - 10);
             if (action != Action.None) Save();
             return action;
@@ -102,13 +130,11 @@ namespace WhiteFox.Client.Gui
 
         private void Save()
         {
-            if (settings.Address == AddressText && settings.OfflineName == UsernameText) return;
-            settings.Address = AddressText;
+            if (settings.OfflineName == UsernameText) return;
             settings.OfflineName = UsernameText;
             settings.Save();
         }
 
-        public string AddressText => string.IsNullOrWhiteSpace(Address.Text) ? Address.Placeholder : Address.Text.Trim();
         public string UsernameText => string.IsNullOrWhiteSpace(Username.Text) ? Username.Placeholder : Username.Text.Trim();
 
         /// <summary>Vanilla splash: yellow, rotated by -20 degrees, pulsing.</summary>
@@ -120,27 +146,6 @@ namespace WhiteFox.Client.Gui
             GUI.matrix = matrix * Matrix4x4.TRS(new Vector3(x, y, 0), Quaternion.Euler(0, 0, -20), new Vector3(scale, scale, 1));
             gui.TextCentered(splash, 0, -8, GuiRenderer.Yellow);
             GUI.matrix = matrix;
-        }
-
-        private async void Ping()
-        {
-            pinging = true;
-            pingFailed = false;
-            pingResult = "Pinging...";
-            try
-            {
-                var (host, port) = await ServerAddress.ResolveAsync(AddressText);
-                var status = await ServerStatus.PingAsync(host, port);
-                pingResult = $"{status.Motd}\n{status.VersionName} - {status.OnlinePlayers}/{status.MaxPlayers} players - {status.PingMilliseconds} ms" +
-                             (status.Compatible ? "" : "\nIncompatible: WhiteFox uses " + Protocol.VersionName);
-                pingFailed = !status.Compatible;
-            }
-            catch (Exception exception)
-            {
-                pingResult = "Can not connect: " + exception.Message;
-                pingFailed = true;
-            }
-            pinging = false;
         }
 
         public static void MainAddress(string address, out string host, out int port)
@@ -234,14 +239,13 @@ namespace WhiteFox.Client.Gui
             gui.TextCentered("Options", center, y - 18);
             var action = Action.None;
 
-            var graphics = settings.Graphics == GraphicsMode.Modern ? "Modern" : "Classic";
-            if (gui.Button(new Rect(center - 155, y, 150, 20), "Graphics: " + graphics))
+            if (gui.Button(new Rect(center - 155, y, 150, 20), "Graphics: " + Settings.GraphicsName(settings.Graphics)))
             {
-                settings.Graphics = settings.Graphics == GraphicsMode.Modern ? GraphicsMode.Classic : GraphicsMode.Modern;
+                settings.Graphics = Settings.NextGraphics(settings.Graphics);
                 action = Action.GraphicsChanged;
             }
-            var distance = gui.Slider(new Rect(center + 5, y, 150, 20), "Render Distance: " + settings.ViewDistance + " chunks", (settings.ViewDistance - 2) / 30f);
-            settings.ViewDistance = 2 + Mathf.RoundToInt(distance * 30);
+            var distance = gui.Slider(new Rect(center + 5, y, 150, 20), "Render Distance: " + settings.ViewDistance + " chunks", (settings.ViewDistance - 2) / 62f);
+            settings.ViewDistance = 2 + Mathf.RoundToInt(distance * 62);
 
             var fov = gui.Slider(new Rect(center - 155, y + 24, 150, 20), "FOV: " + Mathf.RoundToInt(settings.FieldOfView), (settings.FieldOfView - 30) / 80f);
             settings.FieldOfView = 30 + Mathf.Round(fov * 80);
@@ -249,8 +253,8 @@ namespace WhiteFox.Client.Gui
             settings.MouseSensitivity = Mathf.Max(0.01f, sensitivity * 0.6f);
 
             if (gui.Button(new Rect(center - 155, y + 48, 150, 20), "Controls...")) action = Action.Controls;
-            // classic is Minosoft's look as it is (only the render distance changes); modern has its quality settings
-            if (gui.Button(new Rect(center + 5, y + 48, 150, 20), "Graphics Quality...", settings.Graphics == GraphicsMode.Modern)) action = Action.Quality;
+            // classic is Minosoft's look as it is (only the render distance changes); enhanced and modern have quality settings
+            if (gui.Button(new Rect(center + 5, y + 48, 150, 20), "Graphics Quality...", settings.Graphics != GraphicsMode.Classic)) action = Action.Quality;
 
             if (gui.Button(new Rect(center - 155, y + 72, 150, 20), "Music & Sounds...")) action = Action.Sounds;
             if (gui.Button(new Rect(center + 5, y + 72, 150, 20), "Resource Packs...")) action = Action.ResourcePacks;
@@ -260,8 +264,8 @@ namespace WhiteFox.Client.Gui
             if (!Application.isMobilePlatform && gui.Button(new Rect(center + 5, y + 96, 150, 20), "Fullscreen: " + (WhiteFoxClient.Fullscreen ? "ON" : "OFF"))) WhiteFoxClient.ToggleFullscreen();
 
             // internal resolution: 50 .. 100 % in steps of 5
-            var scale = gui.Slider(new Rect(center - 155, y + 120, 310, 20), "Resolution: " + Mathf.RoundToInt(settings.RenderScale * 100) + "%", (settings.RenderScale - 0.5f) / 0.5f);
-            settings.RenderScale = Mathf.Round((0.5f + scale * 0.5f) * 20) / 20;
+            var scale = gui.Slider(new Rect(center - 155, y + 120, 310, 20), "Resolution: " + Mathf.RoundToInt(settings.RenderScale * 100) + "%", (settings.RenderScale - 0.25f) / 0.75f);
+            settings.RenderScale = Mathf.Round((0.25f + scale * 0.75f) * 20) / 20;
 
             // frame rate limit: 15 .. 240, the far right is unlimited
             var steps = Settings.FpsSteps;
@@ -418,6 +422,7 @@ namespace WhiteFox.Client.Gui
         {
             if (overGame) gui.Fill(new Rect(0, 0, gui.Width, gui.Height), new Color(0.06f, 0.06f, 0.06f, 0.75f));
             else MessageScreen.DirtBackground(gui);
+            if (settings.Graphics == GraphicsMode.Enhanced) return DrawEnhanced(gui, settings);
             var center = Mathf.Floor(gui.Width / 2);
             var y = Mathf.Floor(gui.Height / 6) - 8;
             gui.TextCentered("Graphics Quality (Modern)", center, y - 18);
@@ -492,11 +497,70 @@ namespace WhiteFox.Client.Gui
                 settings.VolumetricClouds = (settings.VolumetricClouds + 1) % 3;
                 changed = true;
             }
-            y -= 24;
+            y += 24;
+            var mistNames = new[] { "OFF", "Light", "Dense" };
+            if (gui.Button(new Rect(center - 155, y, 150, 20), "Mist: " + mistNames[Mathf.Clamp(settings.Mist, 0, 2)], settings.SunShadows > 0))
+            {
+                settings.Mist = (settings.Mist + 1) % 3;
+                changed = true;
+            }
+            if (gui.Button(new Rect(center + 5, y, 150, 20), "Waving Plants: " + (settings.WavingPlants ? "ON" : "OFF")))
+            {
+                settings.WavingPlants = !settings.WavingPlants;
+                changed = true;
+            }
+            y -= 48;
             var blurNames = new[] { "OFF", "Low", "High" };
             if (gui.Button(new Rect(center + 5, y, 150, 20), "Motion Blur: " + blurNames[Mathf.Clamp(settings.MotionBlur, 0, 2)], settings.PostProcessing))
             {
                 settings.MotionBlur = (settings.MotionBlur + 1) % 3;
+                changed = true;
+            }
+
+            if (gui.Button(new Rect(center - 100, gui.Height - 30, 200, 20), "Done"))
+            {
+                settings.Save();
+                return 2;
+            }
+            return changed ? 1 : 0;
+        }
+
+        private static readonly string[] EnhancedPresetNames = { "Low", "Medium", "High" };
+
+        /// <summary>The enhanced mode: the classic look with motion blur, volumetric clouds and wind.</summary>
+        private static int DrawEnhanced(GuiRenderer gui, Settings settings)
+        {
+            var center = Mathf.Floor(gui.Width / 2);
+            var y = Mathf.Floor(gui.Height / 6) - 8;
+            gui.TextCentered("Graphics Quality (Enhanced)", center, y - 18);
+            var changed = false;
+
+            for (var preset = 0; preset < 3; preset++)
+            {
+                if (gui.Button(new Rect(center - 155 + preset * 105, y, 100, 20), EnhancedPresetNames[preset]))
+                {
+                    settings.ApplyEnhancedPreset(preset);
+                    changed = true;
+                }
+            }
+            y += 28;
+
+            var blurNames = new[] { "OFF", "Low", "High" };
+            if (gui.Button(new Rect(center - 155, y, 150, 20), "Motion Blur: " + blurNames[Mathf.Clamp(settings.EnhancedMotionBlur, 0, 2)]))
+            {
+                settings.EnhancedMotionBlur = (settings.EnhancedMotionBlur + 1) % 3;
+                changed = true;
+            }
+            var cloudNames = new[] { "Vanilla", "Volumetric", "Volumetric HQ" };
+            if (gui.Button(new Rect(center + 5, y, 150, 20), "Clouds: " + cloudNames[Mathf.Clamp(settings.EnhancedClouds, 0, 2)]))
+            {
+                settings.EnhancedClouds = (settings.EnhancedClouds + 1) % 3;
+                changed = true;
+            }
+            y += 24;
+            if (gui.Button(new Rect(center - 155, y, 150, 20), "Waving Plants: " + (settings.WavingPlants ? "ON" : "OFF")))
+            {
+                settings.WavingPlants = !settings.WavingPlants;
                 changed = true;
             }
 
