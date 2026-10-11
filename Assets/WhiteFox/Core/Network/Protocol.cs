@@ -163,6 +163,8 @@ namespace WhiteFox.Core.Network
             public const int UpdateAdvancements = 0x70;
             public const int UpdateAttributes = 0x71;
             public const int SetCooldown = 0x16;
+            public const int Explosion = 0x1E;
+            public const int HurtAnimation = 0x22;
             public const int ChunkBiomes = 0x0E;
             public const int WorldEvent = 0x26;
             public const int Particle = 0x27;

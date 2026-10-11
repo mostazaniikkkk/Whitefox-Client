@@ -104,6 +104,10 @@ namespace WhiteFox.Core.Entities
         // ---- ender dragon: the yaw and height of the last 64 ticks (vanilla EnderDragon.positions); the neck and tail
         // segments follow the flight path with them, and the phase (entity data 16)
         public int DragonPhase;
+        /// <summary>Creepers (vanilla Creeper.tick, on the client too): the swelling before the explosion, 0..30 ticks.</summary>
+        public int SwellDirection = -1;
+        public bool Charged, Ignited;
+        public int Swell, PreviousSwell;
         /// <summary>Arrows and tridents: entity data 8 (0x01 critical), the potion color of tipped arrows (-1 none).</summary>
         public byte ArrowFlags;
         public int ArrowColor = -1;
@@ -285,6 +289,11 @@ namespace WhiteFox.Core.Entities
             }
 
             if (Type?.Name.Path == "ender_dragon") RecordLatency();
+            if (Type?.Name.Path == "creeper")
+            {
+                PreviousSwell = Swell;
+                Swell = Math.Max(0, Math.Min(30, Swell + (Ignited ? 1 : SwellDirection)));
+            }
 
             if (HurtTime > 0) HurtTime--;
             if (Health <= 0 && IsLiving) DeathTime++;

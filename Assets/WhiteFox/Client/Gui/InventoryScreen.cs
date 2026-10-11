@@ -156,7 +156,9 @@ namespace WhiteFox.Client.Gui
                     if (query.Length == 0 || item.DisplayName.ToLowerInvariant().Contains(query) || item.Name.Path.Contains(query.Replace(' ', '_'))) filtered.Add(item);
                 }
             }
-            search.Focused = true;
+            // vanilla keeps the search focused; on touch screens a focused field holds the on-screen keyboard open (it
+            // came back right after closing it), so there the field is focused by tapping it
+            if (!TouchScreenKeyboard.isSupported) search.Focused = true;
             search.Draw(gui, new Rect(panel.x + 80, panel.y + 4, 90, 12), false);
 
             var rows = (filtered.Count + 8) / 9;

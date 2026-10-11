@@ -42,8 +42,15 @@ namespace WhiteFox.Client
             }
             var rect = new Rect(2, gui.Height - 14, gui.Width - 4, 12);
             gui.Fill(rect, new Color(0, 0, 0, 0.5f));
-            Field.Focused = true;
-            if (!Field.Draw(gui, new Rect(rect.x - 2, rect.y, rect.width, rect.height), false)) return null;
+            // touch screens: the on-screen keyboard is the chat; hiding it closes the chat (focusing every frame opened
+            // it again right away)
+            var touch = TouchScreenKeyboard.isSupported;
+            if (!touch) Field.Focused = true;
+            if (!Field.Draw(gui, new Rect(rect.x - 2, rect.y, rect.width, rect.height), false))
+            {
+                if (touch && !Field.Focused && current.type == EventType.Repaint && Time.frameCount > openedFrame + 12) Open = false;
+                return null;
+            }
             Open = false;
             return Field.Text;
         }

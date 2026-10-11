@@ -106,9 +106,34 @@ namespace WhiteFox.Client.Gui
             if (gui.Button(new Rect(center - 100, y + 98, 98, 20), "Options...")) action = Action.Options;
             if (gui.Button(new Rect(center + 2, y + 98, 98, 20), "Quit Game")) action = Action.Quit;
 
+            // split screen (Windows): a second player with a controller joins the same server
+            var messageY = y + 126;
+            if (WhiteFox.Client.SplitScreen.Supported)
+            {
+                if (gui.Button(new Rect(center - 100, y + 122, 98, 20), "Split Screen: " + (settings.SplitScreen ? "ON" : "OFF")))
+                {
+                    settings.SplitScreen = !settings.SplitScreen;
+                    settings.Save();
+                }
+                if (settings.SplitScreen && gui.Button(new Rect(center + 2, y + 122, 98, 20), settings.SplitHorizontal ? "Top / Bottom" : "Left / Right"))
+                {
+                    settings.SplitHorizontal = !settings.SplitHorizontal;
+                    settings.Save();
+                }
+                if (settings.SplitScreen)
+                {
+                    gui.TextCentered("In a server, player 2 presses Start on a controller to join", center, y + 148, GuiRenderer.Gray);
+                    messageY = y + 162;
+                }
+                else
+                {
+                    messageY = y + 150;
+                }
+            }
+
             if (message != null)
             {
-                var lineY = y + 126;
+                var lineY = messageY;
                 foreach (var line in gui.Wrap(message, 300))
                 {
                     gui.TextCentered(line, center, lineY, GuiRenderer.Red);

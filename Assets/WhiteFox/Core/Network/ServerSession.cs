@@ -105,6 +105,56 @@ namespace WhiteFox.Core.Network
         }
 
         /// <summary>Opens the connection and starts the login (offline account).</summary>
+        /// <summary>The options after a particle type id (1.20.4 particle types with data).</summary>
+        private void ReadParticleOptions(InBuffer buffer, int particleId, ref Game.ParticleRequest request)
+        {
+            // particle options (1.20.4 particle types with data)
+            switch (particleId)
+            {
+                case 2: // block
+                case 3: // block_marker
+                case 27: // falling_dust
+                    request.Block = blocks.GetState(buffer.ReadVarInt());
+                    break;
+                case 14: // dust
+                    request.R = buffer.ReadFloat();
+                    request.G = buffer.ReadFloat();
+                    request.B = buffer.ReadFloat();
+                    request.Scale = buffer.ReadFloat();
+                    break;
+                case 15: // dust_color_transition: from, scale, to
+                    request.R = buffer.ReadFloat();
+                    request.G = buffer.ReadFloat();
+                    request.B = buffer.ReadFloat();
+                    request.Scale = buffer.ReadFloat();
+                    buffer.ReadFloat();
+                    buffer.ReadFloat();
+                    buffer.ReadFloat();
+                    break;
+                case 42: // item
+                    request.Item = ReadSlot(buffer);
+                    break;
+                case 43: // vibration: position source and ticks
+                    if (buffer.ReadVarInt() == 0)
+                    {
+                        buffer.ReadPosition();
+                    }
+                    else
+                    {
+                        buffer.ReadVarInt();
+                        buffer.ReadFloat();
+                    }
+                    buffer.ReadVarInt();
+                    break;
+                case 33: // sculk_charge
+                    buffer.ReadFloat();
+                    break;
+                case 96: // shriek
+                    buffer.ReadVarInt();
+                    break;
+            }
+        }
+
         /// <summary>Vanilla's sprinting speed modifier (LivingEntity.SPEED_MODIFIER_SPRINTING_UUID).</summary>
         private static readonly Guid SprintingModifier = new Guid("662a6b8d-da3e-4c1c-8813-96ea6097278d");
 
@@ -343,51 +393,7 @@ namespace WhiteFox.Core.Network
                         Count = buffer.ReadInt(),
                         Scale = 1,
                     };
-                    // particle options (1.20.4 particle types with data)
-                    switch (particleId)
-                    {
-                        case 2: // block
-                        case 3: // block_marker
-                        case 27: // falling_dust
-                            request.Block = blocks.GetState(buffer.ReadVarInt());
-                            break;
-                        case 14: // dust
-                            request.R = buffer.ReadFloat();
-                            request.G = buffer.ReadFloat();
-                            request.B = buffer.ReadFloat();
-                            request.Scale = buffer.ReadFloat();
-                            break;
-                        case 15: // dust_color_transition: from, scale, to
-                            request.R = buffer.ReadFloat();
-                            request.G = buffer.ReadFloat();
-                            request.B = buffer.ReadFloat();
-                            request.Scale = buffer.ReadFloat();
-                            buffer.ReadFloat();
-                            buffer.ReadFloat();
-                            buffer.ReadFloat();
-                            break;
-                        case 42: // item
-                            request.Item = ReadSlot(buffer);
-                            break;
-                        case 43: // vibration: position source and ticks
-                            if (buffer.ReadVarInt() == 0)
-                            {
-                                buffer.ReadPosition();
-                            }
-                            else
-                            {
-                                buffer.ReadVarInt();
-                                buffer.ReadFloat();
-                            }
-                            buffer.ReadVarInt();
-                            break;
-                        case 33: // sculk_charge
-                            buffer.ReadFloat();
-                            break;
-                        case 96: // shriek
-                            buffer.ReadVarInt();
-                            break;
-                    }
+                    ReadParticleOptions(buffer, particleId, ref request);
                     pending.Enqueue(game => game.OnParticle(particleId, request));
                     break;
                 }
@@ -759,6 +765,45 @@ namespace WhiteFox.Core.Network
                     var level = buffer.ReadVarInt();
                     var total = buffer.ReadVarInt();
                     pending.Enqueue(game => game.OnExperience(bar, level, total));
+                    break;
+                }
+                case Protocol.PlayS2C.Explosion:
+                {
+                    // the explosion seen by the client: blocks destroyed, the push on the own player, particles, sound
+                    var center = new Vec3d(buffer.ReadDouble(), buffer.ReadDouble(), buffer.ReadDouble());
+                    var power = buffer.ReadFloat();
+                    var count = buffer.ReadVarInt();
+                    var origin = BlockPos.Floor(center.X, center.Y, center.Z);
+                    var destroyed = new List<BlockPos>(count);
+                    for (var i = 0; i < count; i++)
+                    {
+                        int dx = (sbyte)buffer.ReadByte(), dy = (sbyte)buffer.ReadByte(), dz = (sbyte)buffer.ReadByte();
+                        destroyed.Add(new BlockPos(origin.X + dx, origin.Y + dy, origin.Z + dz));
+                    }
+                    var push = new Vec3d(buffer.ReadFloat(), buffer.ReadFloat(), buffer.ReadFloat());
+                    var interaction = buffer.ReadVarInt();
+                    var small = new Game.ParticleRequest { Position = center, Offset = new Vec3d(1, 0, 0), Count = 0, Speed = 1, Scale = 1 };
+                    var smallId = buffer.ReadVarInt();
+                    ReadParticleOptions(buffer, smallId, ref small);
+                    var large = new Game.ParticleRequest { Position = center, Offset = new Vec3d(1, 0, 0), Count = 0, Speed = 1, Scale = 1 };
+                    var largeId = buffer.ReadVarInt();
+                    ReadParticleOptions(buffer, largeId, ref large);
+                    var soundId = buffer.ReadVarInt() - 1;
+                    string soundName = null;
+                    if (soundId < 0)
+                    {
+                        soundName = buffer.ReadString();
+                        if (soundName.StartsWith("minecraft:")) soundName = soundName.Substring(10);
+                        if (buffer.ReadBool()) buffer.ReadFloat();
+                    }
+                    pending.Enqueue(game => game.OnExplosion(center, power, destroyed, push, interaction, smallId, small, largeId, large, soundId, soundName));
+                    break;
+                }
+                case Protocol.PlayS2C.HurtAnimation:
+                {
+                    var entityId = buffer.ReadVarInt();
+                    var yaw = buffer.ReadFloat();
+                    pending.Enqueue(game => game.OnHurtAnimation(entityId, yaw));
                     break;
                 }
                 case Protocol.PlayS2C.SetCooldown:

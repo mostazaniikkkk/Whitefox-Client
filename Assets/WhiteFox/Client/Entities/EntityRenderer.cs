@@ -124,6 +124,7 @@ namespace WhiteFox.Client.Entities
             localEntity.Equipment[1] = session.Inventory.Player.Slots[45];
             // the own bow, shield or trident in use, seen in third person
             localEntity.UsingHand = player.UsingItem ? (player.UsingOffHand ? 2 : 1) : 0;
+            localEntity.HurtTime = session.OwnHurtTime; // the red flash in third person
             localEntity.UseTicks = player.UsingItem ? localEntity.UseTicks + (localEntity.Age != (int)session.Ticks ? 1 : 0) : 0;
             var slots = session.Inventory.Player.Slots;
             for (var i = 0; i < 4; i++) localEntity.Equipment[5 - i] = slots[5 + i]; // helmet, chestplate, leggings, boots
@@ -509,7 +510,8 @@ namespace WhiteFox.Client.Entities
         {
             var visible = !entity.Invisible && (entity != localEntity || ShowLocalPlayer) && !(entity.Id == session.Server?.EntityId);
             var position = entity.Interpolated(partial);
-            var light = session.World.GetLight((int)Math.Floor(position.X), (int)Math.Floor(position.Y + entity.Height * 0.5), (int)Math.Floor(position.Z));
+            // vanilla getLightProbePosition: the light at the eyes (most entities: 0.85 of the height)
+            var light = session.World.GetLight((int)Math.Floor(position.X), (int)Math.Floor(position.Y + entity.Height * 0.85), (int)Math.Floor(position.Z));
             properties.Clear();
             properties.SetVector(LightId, new Vector4((light & 0x0F) / 15f, (light >> 4) / 15f, 0, 0));
             var hurt = entity.HurtTime > 0 || entity.DeathTime > 0;
@@ -587,7 +589,7 @@ namespace WhiteFox.Client.Entities
             var scale = view.Model.Scale * (entity.Baby ? 0.5f : 1) * (view.Model.Kind == ModelKind.Slime ? entity.SlimeSize : 1)
                         * (view.Model.Kind == ModelKind.ArmorStand && (entity.StandFlags & 0x01) != 0 ? 0.5f : 1)
                         * (view.Model.Kind == ModelKind.Phantom ? 1 + 0.15f * entity.PhantomSize : 1);
-            matrix *= Matrix4x4.Scale(new Vector3(-1, -1, 1)) * Matrix4x4.Scale(Vector3.one * scale) * Matrix4x4.Translate(view.Model.Offset) * Matrix4x4.Translate(new Vector3(0, -1.501f, 0));
+            matrix *= Matrix4x4.Scale(new Vector3(-1, -1, 1)) * CreeperSwell(entity, partial) * Matrix4x4.Scale(Vector3.one * scale) * Matrix4x4.Translate(view.Model.Offset) * Matrix4x4.Translate(new Vector3(0, -1.501f, 0));
             Apply(view.Root.transform, matrix);
 
             // sheep: sheared hides the fur; pig: the saddle layer
@@ -712,6 +714,24 @@ namespace WhiteFox.Client.Entities
                 tailZ -= Mathf.Cos(yRot) * Mathf.Cos(xRot) * 10;
                 tailX -= Mathf.Sin(yRot) * Mathf.Cos(xRot) * 10;
             }
+        }
+
+        /// <summary>
+        /// CreeperRenderer.scale and getWhiteOverlayProgress: a creeper about to explode swells, trembles and flashes white.
+        /// </summary>
+        private Matrix4x4 CreeperSwell(Entity entity, float partial)
+        {
+            if (entity.Type?.Name.Path != "creeper" || entity.Swell == 0 && entity.PreviousSwell == 0) return Matrix4x4.identity;
+            var swelling = Mathf.Lerp(entity.PreviousSwell, entity.Swell, partial) / 28f; // vanilla: swell / (maxSwell - 2)
+            var tremble = 1 + Mathf.Sin(swelling * 100) * swelling * 0.01f;
+            var f = Mathf.Clamp01(swelling);
+            f *= f;
+            f *= f;
+            var flash = (int)(swelling * 10) % 2 == 0 ? 0 : Mathf.Clamp(swelling, 0.5f, 1);
+            if (flash > 0 && entity.HurtTime <= 0) properties.SetColor(OverlayId, new Color(1, 1, 1, flash * 0.5f));
+            var wide = (1 + f * 0.4f) * tremble;
+            var high = (1 + f * 0.1f) / tremble;
+            return Matrix4x4.Scale(new Vector3(wide, high, wide));
         }
 
         /// <summary>

@@ -20,10 +20,12 @@ namespace WhiteFox.Client
         public bool ToggleRenderMode;
         /// <summary>Touch controls (phones, tablets, -wf-touch), or null.</summary>
         public TouchControls Touch;
+        /// <summary>Game controllers, or null.</summary>
+        public GamepadInput Gamepad;
         private bool locked;
 
         /// <summary>Playing (not in a menu): the locked mouse cursor on a PC, the game screen with touch controls.</summary>
-        public bool CursorLocked => TouchActive ? locked : Cursor.lockState == CursorLockMode.Locked;
+        public bool CursorLocked => TouchActive || SplitScreen.IsPlayer2 ? locked : Cursor.lockState == CursorLockMode.Locked;
 
         public bool TouchActive => Touch != null && Touch.Enabled;
 
@@ -49,7 +51,7 @@ namespace WhiteFox.Client
                 input.UseHeld = true;
                 return;
             }
-            if (keyboard == null && mouse == null && !TouchActive) return;
+            if (keyboard == null && mouse == null && !TouchActive && UnityEngine.InputSystem.Gamepad.current == null) return;
 
             if (chat.Open || !CursorLocked)
             {
@@ -76,6 +78,7 @@ namespace WhiteFox.Client
             if (mouse != null) ReadMouse(session, mouse);
             if (keyboard != null) ReadKeyboard(session, keyboard);
             if (TouchActive) Touch.Apply(session, GuiScale);
+            Gamepad?.Apply(session, this);
         }
 
         /// <summary>GUI scale of the last frame (touch buttons are laid out in GUI units).</summary>
@@ -141,7 +144,7 @@ namespace WhiteFox.Client
         public void SetCursorLocked(bool locked)
         {
             this.locked = locked;
-            if (TouchActive) return; // no cursor to lock: "locked" only means playing
+            if (TouchActive || SplitScreen.IsPlayer2) return; // no cursor to lock: "locked" only means playing
             Cursor.lockState = locked ? CursorLockMode.Locked : CursorLockMode.None;
             Cursor.visible = !locked;
         }

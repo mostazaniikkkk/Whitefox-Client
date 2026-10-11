@@ -34,6 +34,9 @@ namespace WhiteFox.Client.Gui
             Font = new GuiFont(Assets);
         }
 
+        /// <summary>The controller cursor in screen pixels while it drives the menus, else null.</summary>
+        public static Vector2? PointerOverride;
+
         /// <summary>Vanilla automatic GUI scale ("Auto" in the video settings).</summary>
         public void Begin(int maxScale = 0)
         {
@@ -45,7 +48,8 @@ namespace WhiteFox.Client.Gui
 
         public bool Repaint => Event.current.type == EventType.Repaint;
 
-        public Vector2 Mouse => Event.current.mousePosition;
+        /// <summary>The pointer in GUI units: the mouse, or the controller cursor while it drives the menus.</summary>
+        public Vector2 Mouse => PointerOverride.HasValue ? PointerOverride.Value / Scale : Event.current.mousePosition;
 
         // ------------------------------------------------------------------ drawing
 
@@ -187,17 +191,22 @@ namespace WhiteFox.Client.Gui
 
         /// <summary>On phones and tablets: the system keyboard while the field is focused.</summary>
         private TouchScreenKeyboard keyboard;
+        private int keyboardOpened;
 
         /// <summary>Draws and handles input; returns true when Enter was pressed while focused.</summary>
         public bool Draw(GuiRenderer gui, Rect rect, bool background = true)
         {
             var current = Event.current;
-            if (current.type == EventType.MouseDown && current.button == 0) Focused = rect.Contains(current.mousePosition);
+            if (current.type == EventType.MouseDown && current.button == 0) Focused = rect.Contains(gui.Mouse);
 
             var submitted = false;
             if (TouchScreenKeyboard.isSupported && current.type == EventType.Repaint)
             {
-                if (Focused && keyboard == null) keyboard = TouchScreenKeyboard.Open(Text, TouchScreenKeyboardType.Default, false, false, false, false, Placeholder);
+                if (Focused && keyboard == null)
+                {
+                    keyboard = TouchScreenKeyboard.Open(Text, TouchScreenKeyboardType.Default, false, false, false, false, Placeholder);
+                    keyboardOpened = Time.frameCount;
+                }
                 if (keyboard != null)
                 {
                     Text = Limit(keyboard.text ?? "");
@@ -206,7 +215,9 @@ namespace WhiteFox.Client.Gui
                         submitted = Focused;
                         Focused = false;
                     }
-                    else if (keyboard.status != TouchScreenKeyboard.Status.Visible) Focused = false;
+                    // hidden (back button, tapping outside): the field loses its focus; the first frames after opening
+                    // the keyboard may not report it visible yet
+                    else if (keyboard.status != TouchScreenKeyboard.Status.Visible && Time.frameCount > keyboardOpened + 10) Focused = false;
                     if (!Focused)
                     {
                         if (keyboard.active) keyboard.active = false;

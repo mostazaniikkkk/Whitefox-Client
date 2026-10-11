@@ -363,6 +363,7 @@ namespace WhiteFox.Core.Game
             if (Server != null && entityId == Server.EntityId)
             {
                 PlaySound("entity.player.hurt", Player.Position, 1, 1, SoundCategory.Player);
+                OwnHurtTime = 10;
                 return;
             }
             var entity = Entities.Get(entityId);
@@ -621,6 +622,7 @@ namespace WhiteFox.Core.Game
             TickGliding();
             TickEntityItemUse();
             TickArrows();
+            if (OwnHurtTime > 0) OwnHurtTime--;
             TickPotionParticles();
             if (!Player.Riding) movement?.Tick();
 
@@ -1065,6 +1067,45 @@ namespace WhiteFox.Core.Game
             return (float)Math.Min(1, left);
         }
 
+        /// <summary>The own player was hurt: ticks left of the hurt effect (camera tilt, red flash) and where from.</summary>
+        public int OwnHurtTime;
+        public float OwnHurtDirection;
+
+        /// <summary>Hurt Animation: the camera of the own player tilts away from the hit (the yaw it came from).</summary>
+        public void OnHurtAnimation(int entityId, float yaw)
+        {
+            if (Server != null && entityId == Server.EntityId)
+            {
+                OwnHurtTime = 10;
+                OwnHurtDirection = yaw;
+                return;
+            }
+            var entity = Entities.Get(entityId);
+            if (entity != null) entity.HurtTime = 10;
+        }
+
+        /// <summary>
+        /// Explosion (vanilla Explosion.finalizeExplosion on the client): the destroyed blocks become air, the own player
+        /// is pushed, the large or small explosion particles and the sound.
+        /// </summary>
+        public void OnExplosion(Vec3d center, float power, List<BlockPos> destroyed, Vec3d push, int interaction, int smallId, ParticleRequest small,
+            int largeId, ParticleRequest large, int soundId, string soundName)
+        {
+            if (interaction == 1 || interaction == 2)
+            {
+                var air = Resources.Blocks.Get("air")?.DefaultState;
+                foreach (var position in destroyed) World.SetBlock(position, air);
+            }
+            Player.Velocity = Player.Velocity + push;
+            var big = power >= 2 && interaction != 0;
+            OnParticle(big ? largeId : smallId, big ? large : small);
+            var pitch = (1 + (float)(SoundRandom.NextDouble() - SoundRandom.NextDouble()) * 0.2f) * 0.7f;
+            OnSoundPacket(soundId, soundName, (int)SoundCategory.Block, center, -1, 4, pitch);
+        }
+
+        /// <summary>The own effect particles are left out in first person (they would fill the view).</summary>
+        public bool OwnParticlesVisible = true;
+
         /// <summary>Golden hearts (the own player's absorption, entity data 15).</summary>
         public float Absorption;
         private int OwnPotionColor;
@@ -1080,7 +1121,7 @@ namespace WhiteFox.Core.Game
             {
                 if (entity.PotionColor > 0 && !entity.Invisible) PotionParticle(entity.PotionColor, entity.PotionAmbient, entity.Position, entity.Width, entity.Height);
             }
-            if (OwnPotionColor > 0) PotionParticle(OwnPotionColor, OwnPotionAmbient, Player.Position, 0.6f, 1.8f);
+            if (OwnPotionColor > 0 && OwnParticlesVisible) PotionParticle(OwnPotionColor, OwnPotionAmbient, Player.Position, 0.6f, 1.8f);
         }
 
         private void PotionParticle(int color, bool ambient, Vec3d position, float width, float height)
@@ -1161,6 +1202,16 @@ namespace WhiteFox.Core.Game
                         break;
                     case 11 when entity.IsLiving && pair.Value is bool potionAmbient:
                         entity.PotionAmbient = potionAmbient;
+                        break;
+                    // creeper: 16 swelling direction (-1 idle, 1 fusing), 17 charged, 18 ignited (flint and steel)
+                    case 16 when path == "creeper" && pair.Value is int swellDirection:
+                        entity.SwellDirection = swellDirection;
+                        break;
+                    case 17 when path == "creeper" && pair.Value is bool charged:
+                        entity.Charged = charged;
+                        break;
+                    case 18 when path == "creeper" && pair.Value is bool ignited:
+                        entity.Ignited = ignited;
                         break;
                     case 8 when (path == "arrow" || path == "spectral_arrow" || path == "trident") && pair.Value is byte arrowFlags:
                         entity.ArrowFlags = arrowFlags;

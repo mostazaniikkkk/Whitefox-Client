@@ -187,6 +187,21 @@ namespace WhiteFox.Client
         /// <summary>Title screen: the last direct connection address and the name of offline accounts.</summary>
         public string Address = "localhost";
         public string OfflineName = "WhiteFox";
+        /// <summary>Split screen (Windows): a second player joins the same server on the other half of the screen.</summary>
+        public bool SplitScreen;
+        public bool SplitHorizontal;
+        public string Player2Name = "";
+
+        /// <summary>Player 2's name: the chosen one, else the own name with "2" (both must differ on a server).</summary>
+        public string Player2NameOrDefault
+        {
+            get
+            {
+                if (!string.IsNullOrWhiteSpace(Player2Name) && Player2Name.Trim() != OfflineName) return Player2Name.Trim();
+                var name = string.IsNullOrEmpty(OfflineName) ? "Player" : OfflineName;
+                return (name.Length > 15 ? name.Substring(0, 15) : name) + "2";
+            }
+        }
         /// <summary>The saved servers of the multiplayer screen.</summary>
         public readonly List<ServerEntry> Servers = new List<ServerEntry>();
 
@@ -305,6 +320,9 @@ namespace WhiteFox.Client
             var multiplayer = root.Table("multiplayer");
             Address = multiplayer.GetString("address", Address);
             OfflineName = multiplayer.GetString("offline_name", OfflineName);
+            SplitScreen = multiplayer.GetBool("split_screen", SplitScreen);
+            SplitHorizontal = multiplayer.GetBool("split_horizontal", SplitHorizontal);
+            Player2Name = multiplayer.GetString("player2_name", Player2Name);
             Servers.Clear();
             foreach (var server in multiplayer.Tables("servers"))
             {
@@ -368,6 +386,9 @@ namespace WhiteFox.Client
             var multiplayer = root.Table("multiplayer");
             multiplayer["address"] = Address ?? "";
             multiplayer["offline_name"] = OfflineName ?? "";
+            multiplayer["split_screen"] = SplitScreen;
+            multiplayer["split_horizontal"] = SplitHorizontal;
+            multiplayer["player2_name"] = Player2Name ?? "";
             var servers = new List<TomlTable>();
             foreach (var server in Servers)
             {
@@ -423,6 +444,7 @@ namespace WhiteFox.Client
                     case "volumetric": VolumetricLight = number; break;
                     case "clouds": VolumetricClouds = number; break;
                     case "mist": Mist = number; break;
+                    case "split": SplitScreen = number != 0; break;
                     case "waving_plants": WavingPlants = number != 0; break;
                     case "enhanced_blur": EnhancedMotionBlur = number; break;
                     case "enhanced_clouds": EnhancedClouds = number; break;

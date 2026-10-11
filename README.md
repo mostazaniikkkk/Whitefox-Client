@@ -224,6 +224,38 @@ Everything is stored in `%USERPROFILE%\AppData\LocalLow\WhiteFox\WhiteFox` (Unit
 
 All keys can be rebound in Options → Controls.
 
+### Split screen (Windows)
+
+Turn on **Split Screen** on the title screen (left / right or top / bottom) and join a server. Player 2 presses
+**Start** on a controller: a second window opens on the other half of the screen and asks for its name with an
+on-screen keyboard for the controller (A types, B deletes, X switches the case, Start is done), then joins the same
+server. Player 1 plays with the keyboard and mouse (or the first controller when two are connected), player 2 with a
+controller. Player 2 leaves with player 1. Each player is a WhiteFox window of its own, so the server sees two normal
+clients.
+
+### Game controllers
+
+Xbox, PlayStation, Switch and generic gamepads work on Windows and Android, laid out like the Bedrock edition:
+
+| Button | Action |
+|---|---|
+| Left stick / right stick | Move / look |
+| A | Jump (double tap: fly in creative) |
+| B | Drop item |
+| X | Swap hands |
+| Y | Inventory |
+| LT / RT | Place or use / break or attack |
+| LB / RB | Hotbar slot |
+| Left stick button | Sprint |
+| Right stick button | Sneak (toggle) |
+| D-pad up / down / right | First / third person, chat, debug screen |
+| View (Select) | Player list |
+| Start | Pause menu |
+
+In menus and inventories a cursor follows the left stick: A clicks, X right clicks, holding RB makes it a shift
+click, the right stick scrolls, B goes back and Y closes the inventory. The touch buttons hide while a controller is
+used.
+
 ## Building from source
 
 1. Open the project folder with **Unity 6000.0.5f1** (or a compatible Unity 6).

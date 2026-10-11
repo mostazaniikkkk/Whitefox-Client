@@ -51,6 +51,15 @@ namespace WhiteFox.Client
         private Camera viewCamera;
         private BlockOutline outline;
         private PlayerInputReader input;
+        private GamepadInput gamepad;
+        private readonly SplitScreen splitScreen = new SplitScreen();
+        private string joinedAddress;
+        private NameEntryScreen nameEntry;
+        private string nameEntryAddress;
+
+        /// <summary>A menu is up (the title, options, an inventory, the pause menu, the chat): the controller drives a cursor.</summary>
+        private bool InMenu => Session == null || !Session.Spawned || !input.CursorLocked || overlay != Overlay.None || chat.Open || textScreens.Open
+                               || Session.Inventory.AnyOpen || Session.Dead || packOffers.Count > 0 || disconnectMessage != null;
         private enum Overlay
         {
             None,
@@ -109,6 +118,17 @@ namespace WhiteFox.Client
             input = new PlayerInputReader(Settings);
             TouchControls.Simulated = CommandLine.Has("-wf-touch");
             input.Touch = new TouchControls(Settings);
+            if (SplitScreen.IsPlayer2)
+            {
+                // player 2: a borderless window on its half, its controller only, nothing saved, no second music
+                SplitScreen.SetupPlayer2();
+                Settings.Persist = false;
+                Settings.Volumes[(int)Core.Game.SoundCategory.Music] = 0;
+                if (UnityEngine.InputSystem.Keyboard.current != null) UnityEngine.InputSystem.InputSystem.DisableDevice(UnityEngine.InputSystem.Keyboard.current);
+                if (UnityEngine.InputSystem.Mouse.current != null) UnityEngine.InputSystem.InputSystem.DisableDevice(UnityEngine.InputSystem.Mouse.current);
+            }
+            gamepad = new GamepadInput(Settings);
+            input.Gamepad = gamepad;
             Settings.ApplyFrameRate();
             if (Application.isMobilePlatform) Screen.sleepTimeout = SleepTimeout.NeverSleep;
             if (CommandLine.Has("-wf-acceptpacks")) Settings.ServerPacks = 1;
@@ -166,7 +186,13 @@ namespace WhiteFox.Client
             status = null;
 
             var connect = CommandLine.Get("-wf-connect");
-            if (connect != null) Connect(connect, CommandLine.Get("-wf-name") ?? "WhiteFox");
+            if (connect != null && SplitScreen.IsPlayer2 && CommandLine.Get("-wf-name") == null)
+            {
+                // player 2 first chooses its name on the on-screen keyboard
+                nameEntry = new NameEntryScreen(CommandLine.Get("-wf-p2default"), CommandLine.Get("-wf-p1name"));
+                nameEntryAddress = connect;
+            }
+            else if (connect != null) Connect(connect, CommandLine.Get("-wf-name") ?? "WhiteFox");
             else if ((CommandLine.Has("-wf-screenshot") && !CommandLine.Has("-wf-title")) || CommandLine.Has("-wf-local")) StartLocal();
 
             if (CommandLine.Has("-wf-inventory") || CommandLine.Has("-wf-chat")) StartCoroutine(OpenInventoryWhenSpawned());
@@ -179,6 +205,9 @@ namespace WhiteFox.Client
 
             var screenshot = CommandLine.Get("-wf-screenshot");
             if (screenshot != null) StartCoroutine(CaptureAndQuit(screenshot));
+            if (CommandLine.Has("-wf-padstart")) StartCoroutine(GamepadStartTest());
+            var padClick = CommandLine.GetValues("-wf-padclick", 2);
+            if (padClick != null) StartCoroutine(GamepadClickTest(float.Parse(padClick[0], System.Globalization.CultureInfo.InvariantCulture), float.Parse(padClick[1], System.Globalization.CultureInfo.InvariantCulture)));
         }
 
         /// <summary>The local flat test world (development only, like Minosoft's LocalConnection).</summary>
@@ -191,6 +220,7 @@ namespace WhiteFox.Client
 
         private async void Connect(string address, string username)
         {
+            joinedAddress = address;
             loginMessage = "Resolving " + address + "...";
             var (host, port) = await ServerAddress.ResolveAsync(address);
             loginMessage = null;
@@ -236,6 +266,14 @@ namespace WhiteFox.Client
 
         private void StopSession(string reason)
         {
+            // player 2 ends with its connection; player 1 takes the whole screen back
+            if (SplitScreen.IsPlayer2)
+            {
+                Application.Quit();
+                return;
+            }
+            splitScreen.Stop();
+            GamepadInput.SplitActive = false;
             cloudPass.Render(null, false);
             var session = Session;
             if (session == null) return;
@@ -263,6 +301,32 @@ namespace WhiteFox.Client
         /// Automated visual check: "-wf-screenshot out.png [-wf-pose x y z yaw pitch] [-wf-time ticks]" waits until every
         /// section is meshed, saves a screenshot and quits.
         /// </summary>
+        /// <summary>
+        /// Automated check of the controller cursor (-wf-padclick x y, screen pixels): a virtual gamepad presses A with the
+        /// cursor there, through the Input System like a real one.
+        /// </summary>
+        private System.Collections.IEnumerator GamepadClickTest(float x, float y)
+        {
+            for (var i = 0; i < 120; i++) yield return null;
+            var pad = UnityEngine.InputSystem.InputSystem.AddDevice<UnityEngine.InputSystem.Gamepad>();
+            gamepad.Cursor = new Vector2(x, y);
+            UnityEngine.InputSystem.InputSystem.QueueStateEvent(pad, new UnityEngine.InputSystem.LowLevel.GamepadState().WithButton(UnityEngine.InputSystem.LowLevel.GamepadButton.South));
+            for (var i = 0; i < 5; i++) yield return null;
+            UnityEngine.InputSystem.InputSystem.QueueStateEvent(pad, new UnityEngine.InputSystem.LowLevel.GamepadState());
+        }
+
+        /// <summary>Automated check of split screen (-wf-padstart): a virtual controller presses Start once in the world.</summary>
+        private System.Collections.IEnumerator GamepadStartTest()
+        {
+            while (Session == null || !Session.Spawned) yield return null;
+            for (var i = 0; i < 60; i++) yield return null;
+            var pad = UnityEngine.InputSystem.InputSystem.AddDevice<UnityEngine.InputSystem.Gamepad>();
+            for (var i = 0; i < 5; i++) yield return null;
+            UnityEngine.InputSystem.InputSystem.QueueStateEvent(pad, new UnityEngine.InputSystem.LowLevel.GamepadState().WithButton(UnityEngine.InputSystem.LowLevel.GamepadButton.Start));
+            for (var i = 0; i < 5; i++) yield return null;
+            UnityEngine.InputSystem.InputSystem.QueueStateEvent(pad, new UnityEngine.InputSystem.LowLevel.GamepadState());
+        }
+
         private System.Collections.IEnumerator CaptureAndQuit(string path)
         {
             daylightCycle = false;
@@ -523,6 +587,72 @@ namespace WhiteFox.Client
         /// inventory or container closes, the pause menu resumes; only while playing does it open the pause menu
         /// (PlayerInputReader). Chat, signs and books close themselves.
         /// </summary>
+        /// <summary>
+        /// The controller's menu buttons: B goes back like Esc (and closes the chat), Start pauses and resumes, Y opens and
+        /// closes the inventory, D-pad down opens the chat.
+        /// </summary>
+        private void UpdateGamepad()
+        {
+            SplitScreen.UpdatePlayer2();
+            if (nameEntry != null)
+            {
+                // player 2 typing its name: then it joins
+                nameEntry.Update(GamepadInput.Pad);
+                if (nameEntry.Result != null)
+                {
+                    SplitScreen.LastPlayer2Name = nameEntry.Result;
+                    var address = nameEntryAddress;
+                    var name = nameEntry.Result;
+                    nameEntry = null;
+                    Connect(address, name);
+                }
+                return;
+            }
+            // player 1 in a server with split screen on: Start on the second controller (or the only one) brings in
+            // player 2; that controller belongs to player 2 from then on
+            if (!SplitScreen.IsPlayer2)
+            {
+                var inServer = Session != null && Session.Spawned && Session.IsRemote;
+                if (Settings.SplitScreen && SplitScreen.Supported && inServer && !splitScreen.Running && joinedAddress != null
+                    && SplitScreen.Player2Controller != null && SplitScreen.Player2Controller.startButton.wasPressedThisFrame)
+                {
+                    var player2 = SplitScreen.LastPlayer2Name;
+                    if (string.IsNullOrEmpty(player2)) player2 = Settings.Player2NameOrDefault;
+                    splitScreen.Start(joinedAddress, player2, Session.Server?.Username ?? Settings.OfflineName, Settings.SplitHorizontal);
+                }
+                splitScreen.Update();
+                GamepadInput.SplitActive = splitScreen.Running || Settings.SplitScreen && SplitScreen.Supported && inServer;
+            }
+            gamepad.Update(InMenu && nameEntry == null);
+            if (!gamepad.Active) return;
+            if (gamepad.BackPressed)
+            {
+                if (chat.Open) chat.Open = false;
+                else if (disconnectMessage != null) disconnectMessage = null;
+                else HandleEscape();
+            }
+            if (Session == null || !Session.Spawned) return;
+            if (gamepad.PausePressed)
+            {
+                if (input.CursorLocked && !Session.Inventory.AnyOpen && !chat.Open) input.SetCursorLocked(false);
+                else HandleEscape();
+            }
+            if (gamepad.InventoryPressed && !chat.Open && overlay == Overlay.None && !textScreens.Open)
+            {
+                if (Session.Inventory.AnyOpen)
+                {
+                    Session.Inventory.Close();
+                    input.SetCursorLocked(true);
+                }
+                else if (input.CursorLocked)
+                {
+                    Session.Inventory.OpenPlayerScreen();
+                    input.SetCursorLocked(false);
+                }
+            }
+            if (gamepad.ChatPressed && input.CursorLocked && !chat.Open && !Session.Inventory.AnyOpen) chat.Show("");
+        }
+
         private void HandleEscape()
         {
             if (packOffers.Count > 0 || chat.Open || textScreens.Open) return;
@@ -670,6 +800,7 @@ namespace WhiteFox.Client
             var escape = keyboard != null && keyboard.escapeKey.wasPressedThisFrame && controls.Waiting == null;
             controls.Capture();
             if (escape) HandleEscape();
+            UpdateGamepad();
             if (Session == null)
             {
                 UpdateTitleBackground();
@@ -801,6 +932,16 @@ namespace WhiteFox.Client
             RenderOrigin.Follow(eyePosition.X, eyePosition.Z);
             cameraTransform.position = RenderOrigin.ToRender(eyePosition.X, eyePosition.Y, eyePosition.Z);
             cameraTransform.rotation = Quaternion.Euler(pitch, yaw + 180.0f, 0);
+            // vanilla GameRenderer.bobHurt: the view tilts away from where the hit came from, for half a second
+            var hurt = Session.OwnHurtTime - partialTick;
+            if (hurt > 0 && !Session.Dead)
+            {
+                var amount = hurt / 10f;
+                amount = Mathf.Sin(amount * amount * amount * amount * Mathf.PI);
+                var direction = Session.OwnHurtDirection;
+                cameraTransform.rotation *= Quaternion.AngleAxis(-direction, Vector3.up) * Quaternion.AngleAxis(amount * 14, Vector3.forward) * Quaternion.AngleAxis(direction, Vector3.up);
+            }
+            Session.OwnParticlesVisible = input.Perspective != 0;
             if (input.Perspective == 0 && firstPerson != null)
             {
                 // view bobbing: the inverse of vanilla's bob of the view matrix, in render space
@@ -929,8 +1070,47 @@ namespace WhiteFox.Client
             }
         }
 
+        /// <summary>
+        /// With a controller in a menu the GUI sees its cursor as the mouse: the position for hovering, and its buttons as
+        /// mouse clicks and scrolling, played as extra GUI passes before the layout pass of the frame.
+        /// </summary>
         private void OnGUI()
         {
+            var pad = gamepad != null && gamepad.Active && gui != null && InMenu && nameEntry == null;
+            GuiRenderer.PointerOverride = pad ? gamepad.Cursor : (Vector2?)null;
+            if (pad && Event.current.type == EventType.Layout && (gamepad.PendingClick >= 0 || gamepad.PendingScroll != 0))
+            {
+                var saved = Event.current;
+                var modifiers = gamepad.PendingShift ? EventModifiers.Shift : EventModifiers.None;
+                if (gamepad.PendingClick >= 0)
+                {
+                    Event.current = new Event { type = EventType.MouseDown, mousePosition = gamepad.Cursor, button = gamepad.PendingClick, clickCount = 1, modifiers = modifiers };
+                    DrawGui();
+                    Event.current = new Event { type = EventType.MouseUp, mousePosition = gamepad.Cursor, button = gamepad.PendingClick, clickCount = 1, modifiers = modifiers };
+                    DrawGui();
+                }
+                if (gamepad.PendingScroll != 0)
+                {
+                    Event.current = new Event { type = EventType.ScrollWheel, mousePosition = gamepad.Cursor, delta = new Vector2(0, gamepad.PendingScroll * 3) };
+                    DrawGui();
+                }
+                gamepad.PendingClick = -1;
+                gamepad.PendingScroll = 0;
+                Event.current = saved;
+            }
+            GuiRenderer.PointerOverride = pad ? gamepad.Cursor : (Vector2?)null;
+            DrawGui();
+            if (pad) gamepad.DrawCursor(gui);
+        }
+
+        private void DrawGui()
+        {
+            if (nameEntry != null && gui != null && resources != null)
+            {
+                gui.Begin();
+                nameEntry.Draw(gui);
+                return;
+            }
             if (resources == null || gui == null)
             {
                 var text = error != null ? "Error: " + error + "\n(see console)" : status + "...";
@@ -994,7 +1174,7 @@ namespace WhiteFox.Client
             entityRenderer?.DrawNameTags(gui, viewCamera, partialTick);
             hud.Draw(Session, this, input, chat, fps);
             input.GuiScale = gui.Scale;
-            if (input.TouchActive && input.CursorLocked && !chat.Open && !Session.Dead && !Session.Inventory.AnyOpen && !textScreens.Open) input.Touch.Draw(gui, Session);
+            if (input.TouchActive && !gamepad.Active && input.CursorLocked && !chat.Open && !Session.Dead && !Session.Inventory.AnyOpen && !textScreens.Open) input.Touch.Draw(gui, Session);
             if (textScreens.Open)
             {
                 textScreens.Draw(Session);
@@ -1093,6 +1273,7 @@ namespace WhiteFox.Client
 
         private void OnDestroy()
         {
+            splitScreen.Dispose();
             Session?.Server?.Disconnect("Client closed");
             Renderer?.Dispose();
             entityRenderer?.Dispose();
