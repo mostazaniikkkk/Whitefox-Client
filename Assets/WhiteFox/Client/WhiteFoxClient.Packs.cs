@@ -124,6 +124,7 @@ namespace WhiteFox.Client
             textures = new BlockTextureArray(resources.Textures);
             foreach (var material in classicMaterials) SetTextures(material);
             foreach (var material in realisticMaterials) SetTextures(material);
+            SetTextures(blockItemMaterial);
             particles?.Dispose();
             particles = new ParticleEngine(resources, textures.Texture);
 
@@ -137,7 +138,7 @@ namespace WhiteFox.Client
             blockEntityModels?.Dispose();
             blockEntityModels = new BlockEntityRenderer(gui.Assets, gui.Font, transform);
             icons.SpecialParts = (name, tag) => blockEntityModels.ItemParts(resources, name, tag);
-            itemModels = new ItemModels(resources, icons, classicMaterials[0]);
+            itemModels = new ItemModels(resources, icons, blockItemMaterial);
             hud = new Hud(gui, icons, resources.Items);
             inventoryScreen = new InventoryScreen(gui, icons, resources.Items);
             textScreens = new TextScreens(gui);

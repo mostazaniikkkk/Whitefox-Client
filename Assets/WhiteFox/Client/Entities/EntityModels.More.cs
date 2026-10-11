@@ -415,7 +415,7 @@ namespace WhiteFox.Client.Entities
         }
 
         /// <summary>
-        /// DragonModel (vanilla animates neck and tail from the position history, here a gentle sway): head with jaw,
+        /// DragonModel (the neck and tail follow the position history, EntityRenderer.AnimateDragonSpine): head with jaw,
         /// five neck segments, body with spines, wings with tips, four legs and twelve tail segments.
         /// </summary>
         private static EntityModel EnderDragon()

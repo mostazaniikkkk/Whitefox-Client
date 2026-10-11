@@ -9,6 +9,8 @@ Shader "WhiteFox/Block"
     {
         _Textures ("Block textures", 2DArray) = "" {}
         _Cutoff ("Alpha cutoff", Range(0, 1)) = 0.1
+        // block items (dropped, held, in frames) set the light where the entity is; chunks keep their vertex light
+        _Light ("Light override (block, sky; negative: vertex light)", Vector) = (-1, -1, 0, 0)
         [Enum(UnityEngine.Rendering.BlendMode)] _SrcBlend ("Src blend", Float) = 1
         [Enum(UnityEngine.Rendering.BlendMode)] _DstBlend ("Dst blend", Float) = 0
         [Toggle] _ZWrite ("ZWrite", Float) = 1
@@ -26,6 +28,7 @@ Shader "WhiteFox/Block"
 
         CBUFFER_START(UnityPerMaterial)
             float _Cutoff;
+            float4 _Light;
         CBUFFER_END
 
         // set globally by the client every frame
@@ -53,8 +56,12 @@ Shader "WhiteFox/Block"
             float4 uv0 : TEXCOORD0;   // u, v, texture layer, ambient occlusion
             float4 color : COLOR;     // tint, alpha = direction shade
             float2 light : TEXCOORD1; // block light, sky light (0..1)
+            float4 normal : TEXCOORD2;  // w: emission of light emitting blocks (the HDR glow of the enhanced mode)
             float4 tangent : TEXCOORD3; // w: sway in the wind (enhanced mode, WhiteFoxWind.hlsl)
         };
+
+        // enhanced mode "HDR glow": bright texels of light emitting blocks go above 1 and bloom (0 in classic)
+        float _WF_EnhancedGlow;
 
         #include "WhiteFoxWind.hlsl"
 
@@ -110,15 +117,18 @@ Shader "WhiteFox/Block"
                 float3 uv : TEXCOORD0;
                 float4 color : TEXCOORD1;
                 float fog : TEXCOORD2;
+                float emission : TEXCOORD3;
             };
 
             Varyings Vert(Attributes input)
             {
                 Varyings output;
+                output.emission = max(input.normal.w, 0.0) * _WF_EnhancedGlow;
                 float3 positionWS = SwayedWorldPosition(input);
                 output.positionCS = TransformWorldToHClip(positionWS);
                 output.uv = input.uv0.xyz;
-                float2 light = float2(DynamicBlockLight(positionWS, input.light.x), input.light.y);
+                float2 vertexLight = _Light.x >= 0.0 ? _Light.xy : input.light;
+                float2 light = float2(DynamicBlockLight(positionWS, vertexLight.x), vertexLight.y);
                 output.color = float4(ToRenderSpace(input.color.rgb * input.color.a * input.uv0.w * Lightmap(light)), 1.0);
                 output.fog = ComputeFogFactor(output.positionCS.z);
                 return output;
@@ -129,6 +139,12 @@ Shader "WhiteFox/Block"
                 half4 texel = SAMPLE_TEXTURE2D_ARRAY(_Textures, sampler_Textures, input.uv.xy, input.uv.z);
                 clip(texel.a - _Cutoff);
                 half4 color = texel * input.color;
+                if (input.emission > 0.0)
+                {
+                    // the flame of a torch, lava, glowstone: their bright texels shine past white, the bloom spreads them
+                    float brightness = max(texel.r, max(texel.g, texel.b));
+                    color.rgb *= 1.0 + input.emission * smoothstep(0.55, 0.9, brightness) * 2.5;
+                }
                 color.rgb = MixFog(color.rgb, input.fog);
                 return color;
             }

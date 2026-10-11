@@ -81,6 +81,8 @@ float3 Clouds(float3 origin, float3 direction, float2 pixel, out float transmitt
     float3 sunlight = _WF_SunColor.rgb;
     float3 color = 0;
     int lightSteps = (int)_WF_CloudLightSteps;
+    // far away the clouds are small on screen: fewer light samples
+    if (t0 > 2500.0) lightSteps = min(lightSteps, 2);
     [loop] for (int i = 0; i < steps; i++)
     {
         float3 position = origin + direction * (t0 + stepLength * (i + noise));
@@ -108,6 +110,38 @@ float3 Clouds(float3 origin, float3 direction, float2 pixel, out float transmitt
     float fade = exp(-t0 / 4500.0);
     transmittance = lerp(1.0, transmittance, fade);
     return color * fade;
+}
+
+// The half resolution cloud texture of CloudPass.cs (rgb light, a transmittance) and the matrix it was made with.
+TEXTURE2D(_WF_CloudTexture);
+SAMPLER(sampler_WF_CloudTexture);
+float4x4 _WF_CloudViewProjection; // OpenGL convention
+float _WF_CloudLowRes;            // 1 while CloudPass renders the clouds into _WF_CloudTexture
+
+// The clouds in a view direction: from the half resolution texture, or marched here if there is none.
+float3 CloudsAt(float3 origin, float3 direction, float2 pixel, out float transmittance)
+{
+    if (_WF_CloudLowRes > 0.5)
+    {
+        float4 clip = mul(_WF_CloudViewProjection, float4(origin + direction, 1.0));
+        float2 uv = clip.xy / clip.w * 0.5 + 0.5;
+        float4 clouds = SAMPLE_TEXTURE2D_LOD(_WF_CloudTexture, sampler_WF_CloudTexture, uv, 0);
+        transmittance = clouds.a;
+        return clouds.rgb;
+    }
+    return Clouds(origin, direction, pixel, transmittance);
+}
+
+// Shadows of the volumetric clouds on the ground: the cloud density where the ray towards the light crosses the lower
+// part of the cloud layer (one cheap sample, no detail noise). 1 without volumetric clouds or with a low light.
+float CloudShadow(float3 positionWS, float3 lightDirection)
+{
+    if (_WF_CloudSteps <= 0.0 || lightDirection.y <= 0.05) return 1.0;
+    float t = (CloudBottom + 40.0 - positionWS.y) / lightDirection.y;
+    if (t <= 0.0) return 1.0;
+    float density = CloudDensity(positionWS + lightDirection * t, false);
+    // thin cloud edges barely shade (like in the sky, where they are see through); some light always gets through
+    return lerp(1.0, 0.4, smoothstep(0.1, 0.45, density));
 }
 
 #endif

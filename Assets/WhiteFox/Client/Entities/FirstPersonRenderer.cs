@@ -76,7 +76,7 @@ namespace WhiteFox.Client.Entities
         public void Tick()
         {
             var player = session.Player;
-            var selected = session.HotbarItems[session.SelectedSlot];
+            var selected = ItemModels.Key(session.Inventory.Player.Slots[36 + session.SelectedSlot])?.TrimEnd('*') ?? session.HotbarItems[session.SelectedSlot];
             previousHeight = height;
             height += Mathf.Clamp((selected == displayedItem ? 1 : 0) - height, -0.4f, 0.4f);
             if (height < 0.1f) displayedItem = selected;

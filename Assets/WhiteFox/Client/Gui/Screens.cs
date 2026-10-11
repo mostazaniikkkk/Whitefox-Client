@@ -116,7 +116,7 @@ namespace WhiteFox.Client.Gui
                 }
             }
 
-            gui.Text("WhiteFox 2.2 (" + Protocol.VersionName + ")", 2, gui.Height - 10);
+            gui.Text("WhiteFox 2.3 (" + Protocol.VersionName + ")", 2, gui.Height - 10);
             gui.TextRight("Based on Minosoft. Not affiliated with Mojang", gui.Width - 2, gui.Height - 10);
             if (action != Action.None) Save();
             return action;
@@ -561,6 +561,11 @@ namespace WhiteFox.Client.Gui
             if (gui.Button(new Rect(center - 155, y, 150, 20), "Waving Plants: " + (settings.WavingPlants ? "ON" : "OFF")))
             {
                 settings.WavingPlants = !settings.WavingPlants;
+                changed = true;
+            }
+            if (gui.Button(new Rect(center + 5, y, 150, 20), "HDR Glow: " + (settings.EnhancedHdr ? "ON" : "OFF")))
+            {
+                settings.EnhancedHdr = !settings.EnhancedHdr;
                 changed = true;
             }
 

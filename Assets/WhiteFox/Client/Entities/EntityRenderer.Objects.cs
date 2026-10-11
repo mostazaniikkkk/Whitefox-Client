@@ -21,6 +21,7 @@ namespace WhiteFox.Client.Entities
         public static readonly HashSet<string> ObjectKinds = new HashSet<string>
         {
             "tnt", "end_crystal", "trident", "wither_skull", "shulker_bullet", "llama_spit", "dragon_fireball", "fishing_bobber", "leash_knot", "evoker_fangs",
+            "wind_charge",
         };
 
         private readonly Dictionary<Color, Material> lineMaterials = new Dictionary<Color, Material>();
@@ -157,6 +158,15 @@ namespace WhiteFox.Client.Entities
                 case "dragon_fireball":
                     Billboard(view, "entity/enderdragon/dragon_fireball", true);
                     break;
+                case "wind_charge":
+                {
+                    // WindChargeModel: the swirl (a flat and a tall box, turned 45 degrees) around the 4x4x4 charge
+                    var layer = ObjectLayer("entity/projectiles/wind_charge", 64, 32);
+                    var material = MaterialFor(layer.Texture);
+                    Piece(view, layer, new ModelPart("wind", 0, 0, 0).Box(15, 20, -4, -1, -4, 8, 2, 8).Box(0, 9, -3, -2, -3, 6, 4, 6), material);
+                    Piece(view, layer, new ModelPart("wind_charge", 0, 0, 0).Box(0, 0, -2, -2, -2, 4, 4, 4), material);
+                    break;
+                }
                 case "fishing_bobber":
                     Billboard(view, "entity/fishing_hook", false);
                     view.Line = Line(view.Root.transform, Color.black, 0.025f);
@@ -274,6 +284,14 @@ namespace WhiteFox.Client.Entities
                     Apply(view.Pieces[0], root * Matrix4x4.Translate(new Vector3(-5 / 16f, y, -5 / 16f)));
                     Apply(view.Pieces[1], root * Matrix4x4.Translate(new Vector3(1.5f / 16, y, -4 / 16f)) * RotZ(Mathf.PI - f * 0.35f * Mathf.PI));
                     Apply(view.Pieces[2], root * Matrix4x4.Translate(new Vector3(-1.5f / 16, y, 4 / 16f)) * RotZ(Mathf.PI + f * 0.35f * Mathf.PI) * RotY(Mathf.PI));
+                    break;
+                }
+                case "wind_charge":
+                {
+                    // WindChargeModel.setupAnim: the swirl and the charge spin in opposite directions, 16 degrees a tick
+                    var spin = age * 16;
+                    Apply(view.Pieces[0], origin * Deg(RotY, -45 + spin));
+                    Apply(view.Pieces[1], origin * Deg(RotY, -spin));
                     break;
                 }
                 case "dragon_fireball":

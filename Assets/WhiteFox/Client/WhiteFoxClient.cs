@@ -43,6 +43,9 @@ namespace WhiteFox.Client
         private Material[] realisticMaterials;
         private RealisticEnvironment environment;
         private EnhancedEffects enhanced;
+        private readonly CloudPass cloudPass = new CloudPass();
+        private int sentViewDistance = -1, pendingViewDistance = -1;
+        private float viewDistanceChanged;
         private LightSourceManager lightSources;
         private long? pinnedTime;
         private Camera viewCamera;
@@ -191,7 +194,11 @@ namespace WhiteFox.Client
             loginMessage = "Resolving " + address + "...";
             var (host, port) = await ServerAddress.ResolveAsync(address);
             loginMessage = null;
-            var server = new ServerSession(host, port, username, resources.Blocks, resources.Items, resources.EntityTypes) { ViewDistance = Settings.ViewDistance };
+            var server = new ServerSession(host, port, username, resources.Blocks, resources.Items, resources.EntityTypes)
+            {
+                ViewDistance = Settings.ViewDistance,
+                WebSocket = ServerAddress.WebSocketUri(address),
+            };
             var session = new GameSession(resources, Settings.ViewDistance, server) { NetworkBudget = 4 };
             StartSession(session);
             try
@@ -229,6 +236,7 @@ namespace WhiteFox.Client
 
         private void StopSession(string reason)
         {
+            cloudPass.Render(null, false);
             var session = Session;
             if (session == null) return;
             Session = null;
@@ -346,14 +354,18 @@ namespace WhiteFox.Client
             }
 
             var classicTranslucent = Translucent(classic, "WhiteFox classic translucent");
-            classicMaterials = new[] { Opaque(classic, "WhiteFox classic opaque"), classicTranslucent, classicTranslucent };
+            // the glass part draws like any cutout block in the classic mode
+            var classicOpaque = Opaque(classic, "WhiteFox classic opaque");
+            classicMaterials = new[] { classicOpaque, classicTranslucent, classicTranslucent, classicOpaque };
             classicBlockShader = classic;
             litBlockShader = lit;
             blockItemMaterial = Opaque(classic, "WhiteFox block items");
 
             var waterMaterial = new Material(water) { name = "WhiteFox water", renderQueue = (int)RenderQueue.Transparent };
             SetTextures(waterMaterial);
-            realisticMaterials = new[] { Opaque(lit, "WhiteFox lit opaque"), Translucent(lit, "WhiteFox lit translucent"), waterMaterial };
+            var glassMaterial = Translucent(lit, "WhiteFox lit glass");
+            glassMaterial.SetFloat("_Glass", 1);
+            realisticMaterials = new[] { Opaque(lit, "WhiteFox lit opaque"), Translucent(lit, "WhiteFox lit translucent"), waterMaterial, glassMaterial };
         }
 
         private void SetTextures(Material material)
@@ -378,7 +390,8 @@ namespace WhiteFox.Client
                 SetTextures(blockItemMaterial);
             }
             blockItemMaterial.SetFloat("_NormalStrength", relief);
-            var modernMaterials = new[] { realisticMaterials[0], realisticMaterials[1], Settings.RealisticWater ? realisticMaterials[2] : realisticMaterials[1] };
+            realisticMaterials[3].SetFloat("_NormalStrength", relief);
+            var modernMaterials = new[] { realisticMaterials[0], realisticMaterials[1], Settings.RealisticWater ? realisticMaterials[2] : realisticMaterials[1], realisticMaterials[3] };
             Renderer.SetMaterials(Modern ? modernMaterials : classicMaterials, Modern && Settings.SunShadows > 0);
             environment.SetEnabled(ModernSky, viewCamera);
             environment.ApplyQuality(Settings, viewCamera);
@@ -619,7 +632,7 @@ namespace WhiteFox.Client
             breakOverlay = new BreakOverlay(transform, classicMaterials[1], resources.DestroyStages);
             skins = new SkinManager(session, gui.Assets);
             maps.Assets = gui.Assets;
-            entityRenderer = new EntityRenderer(session, transform, gui.Assets, itemModels, skins, blockItemMaterial) { Maps = maps };
+            entityRenderer = new EntityRenderer(session, transform, gui.Assets, itemModels, skins, blockItemMaterial) { Maps = maps, Font = gui.Font };
             firstPerson = new FirstPersonRenderer(session, viewCamera, itemModels, skins) { Maps = maps };
             blockEntityRenderer = new BlockEntityRenderer(session, Renderer, transform, gui.Assets, gui.Font, skins);
         }
@@ -695,6 +708,20 @@ namespace WhiteFox.Client
                 ApplyRenderMode();
             }
             if (Session.ChunkManager != null) Session.ChunkManager.ViewDistance = Settings.ViewDistance;
+            // the server learns a changed render distance once the slider rests for half a second
+            if (Settings.ViewDistance != sentViewDistance)
+            {
+                if (Settings.ViewDistance != pendingViewDistance)
+                {
+                    pendingViewDistance = Settings.ViewDistance;
+                    viewDistanceChanged = Time.realtimeSinceStartup;
+                }
+                else if (Time.realtimeSinceStartup - viewDistanceChanged > 0.5f && Session.Server != null)
+                {
+                    Session.Server.UpdateViewDistance(Settings.ViewDistance);
+                    sentViewDistance = Settings.ViewDistance;
+                }
+            }
             Renderer.ViewDistance = Settings.ViewDistance;
             Renderer.CullingEnabled = !CommandLine.Has("-wf-nocull");
 
@@ -729,6 +756,9 @@ namespace WhiteFox.Client
             particles.Render(viewCamera, partialTick);
             weather.RealisticSky = environment.Enabled;
             weather.CloudsEnabled = !(environment.Enabled && environment.VolumetricClouds) && !enhanced.VolumetricClouds;
+            // the volumetric clouds at half resolution, for the sky drawn this frame
+            var overworldSky = Session.Dimension.Effects == "minecraft:overworld";
+            cloudPass.Render(viewCamera, environment.Enabled && environment.VolumetricClouds || enhanced.VolumetricClouds && overworldSky);
             weather.Render(Session, viewCamera, partialTick, Settings.ViewDistance);
             var cameraPosition = viewCamera.transform.position;
             dynamicLights.Update(Session, new Vec3d(cameraPosition.x + RenderOrigin.X, cameraPosition.y, -cameraPosition.z + RenderOrigin.Z), partialTick, lightSources);
@@ -1079,6 +1109,7 @@ namespace WhiteFox.Client
             textures?.Dispose();
             environment?.Dispose();
             enhanced?.Dispose();
+            cloudPass.Dispose();
             lightSources?.Dispose();
             if (blockItemMaterial != null) Destroy(blockItemMaterial);
             foreach (var material in (classicMaterials ?? Array.Empty<Material>()))

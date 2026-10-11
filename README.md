@@ -40,6 +40,9 @@ The first start downloads about 25 MB of game data.
   players, latency).
 - Joins **offline mode** servers with a name (no premium accounts); addresses use SRV records like vanilla (Aternos and
   similar hosts). Online mode servers are refused with a message.
+- `ws://` and `wss://` addresses connect over a WebSocket, the transport of BambiettaServer: the same 1.20.4
+  protocol on its main port (25565 unless the address names another). **Alpha:** the integration is new and still
+  being tested. Self-signed certificates are accepted only for servers on this computer or the local network.
 - Multiplayer screen like vanilla's: saved servers with their icon, MOTD, player count and ping; add, edit, delete,
   refresh and direct connect. The list is kept in `config.toml`.
 - Items renamed in an anvil show their name (italic, with its colors) in tooltips and above the hotbar; on touch
@@ -87,8 +90,9 @@ F6 (or Options → Graphics) cycles through three modes:
   and color grading, optional camera motion blur.
 - **Sky and atmosphere:** analytic single scattering (Rayleigh + Mie) for deep blue skies, orange sunrises and
   sunsets and a haze around the sun; the fog takes the color of the horizon in front of the camera; stars at night.
-- **Volumetric clouds:** a ray marched cloud layer (tiling Perlin-Worley noise for shape, erosion and coverage) lit by
-  the sun with self shadowing, drifting east and covering the sky in rain. The vanilla box clouds remain an option.
+- **Volumetric clouds:** a ray marched cloud layer (tiling Perlin-Worley noise for shape, erosion and coverage),
+  rendered at half resolution and lit by the sun with self shadowing, drifting east and covering the sky in rain; they
+  cast soft shadows on the terrain and entities. The vanilla box clouds remain an option.
 - **God rays:** volumetric sun light, a short ray march through the sun shadow map per pixel.
 - **Real lights**: every nearby light-emitting block is a point light with physical falloff and its own color; the
   closest ones cast shadows. Minecraft's stepped block light levels are not used in this mode.
@@ -127,7 +131,8 @@ different); their LabPBR resource packs are.
 ### Entities
 
 - Vanilla models with animations (walking, looking, attacking, sneaking, riding, swimming, death, red hurt flash):
-  players (vanilla default skin by UUID, or the skin the server sends; 64×32 skins converted),
+  players (the skin the server sends, else the skin of the Minecraft account with that name, else the vanilla default
+  skin by UUID; 64×32 skins converted),
   zombies/husks/drowned, skeletons, creepers, spiders, cows/mooshrooms, pigs, sheep (color and sheared), chickens,
   endermen, villagers/witches/illagers, slimes, wolves, cats/ocelots, iron and snow golems, piglins, llamas, bees,
   fish, squids, bats, foxes, polar bears, blazes, ghasts, horses/donkeys/mules, turtles, dolphins, axolotls, frogs,
@@ -137,12 +142,16 @@ different); their LabPBR resource packs are.
   model yet are drawn as their hitbox.
 - Texture variants: cats, horse colors and markings, llamas, parrots, rabbits, foxes, axolotls, frogs, mooshrooms,
   tropical fish (shape, pattern and colors), villagers and zombie villagers (biome, profession and level).
-- The dragon flaps its wings and sways its neck and tail; the wither's ribcage breathes; guardians retract their 12
+- The dragon flaps its wings, its neck and tail follow its flight path (the yaw and height of the last ticks, like
+  vanilla); the wither's ribcage breathes and its side heads look at their own targets; guardians retract their 12
   spikes while swimming.
 - Worn armor (dyed leather included), held items, dropped items with vanilla's per-pixel extruded thickness,
   experience orbs, falling blocks, arrows, thrown projectiles, item frames and all 30 paintings; primed TNT, end
-  crystals, thrown tridents, wither skulls, shulker bullets, llama spit, dragon fireballs, fishing bobbers with their
-  line, leads and leash knots, evoker fangs.
+  crystals, thrown tridents, wither skulls, shulker bullets, llama spit, dragon fireballs, wind charges, fishing
+  bobbers with their line, leads and leash knots, evoker fangs.
+- Display entities (holograms and decorations of server plugins): block, item and text displays with their
+  transformation (interpolated), billboard modes and brightness; text displays with colors, line width, alignment,
+  background, shadow and see-through text.
 - **Enchantment glint** (vanilla texture and scrolling) on enchanted items and books, potions, enchanted golden apples…
   in the inventory, in hand, on the ground and on worn armor.
 - Attacking (left click), interacting and mounting (right click); passengers are positioned like vanilla, saddled
@@ -282,10 +291,6 @@ Deliberate differences from Minosoft:
 ## Roadmap
 
 1. A web build (WebGL) through the BambiettaServer WebSocket backend.
-2. Remaining approximations: the dragon's neck and tail do not follow its flight path (vanilla uses the position
-   history), the wither's side heads do not track targets, horse jump strength uses the average (the attribute is not
-   sent to the client), and banners/shields in hand are drawn without their patterns.
-3. Display entities (text/item/block displays), the wind charge, cloud shadows on the terrain.
 
 ## License
 

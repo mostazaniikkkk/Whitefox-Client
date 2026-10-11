@@ -31,6 +31,8 @@ namespace WhiteFox.Client
         private readonly VolumeProfile profile;
         private readonly Volume volume;
         private readonly MotionBlur motionBlur;
+        private readonly Bloom bloom;
+        private static readonly int GlowId = Shader.PropertyToID("_WF_EnhancedGlow");
         private int cloudSteps;
         private bool wind;
         private GameObject clouds;
@@ -54,6 +56,12 @@ namespace WhiteFox.Client
             motionBlur.intensity.Override(0.25f);
             motionBlur.quality.Override(MotionBlurQuality.Low);
             motionBlur.clamp.Override(0.05f);
+            // HDR glow: only what goes past white blooms (the emissive texels), the rest keeps the classic colors
+            bloom = profile.Add<Bloom>(true);
+            bloom.threshold.Override(1.0f);
+            bloom.intensity.Override(0.9f);
+            bloom.scatter.Override(0.6f);
+            bloom.active = false;
             volume = root.AddComponent<Volume>();
             volume.isGlobal = true;
             volume.priority = 90;
@@ -65,7 +73,9 @@ namespace WhiteFox.Client
         {
             Enabled = enabled;
             root.SetActive(enabled);
-            cloudSteps = settings.EnhancedClouds == 0 ? 0 : settings.EnhancedClouds == 1 ? 24 : 48;
+            // phones: fewer steps through the cloud layer (the clouds are soft anyway)
+            var mobile = Application.isMobilePlatform;
+            cloudSteps = settings.EnhancedClouds == 0 ? 0 : settings.EnhancedClouds == 1 ? (mobile ? 14 : 24) : (mobile ? 24 : 48);
             wind = settings.WavingPlants;
             if (enabled)
             {
@@ -75,17 +85,21 @@ namespace WhiteFox.Client
                     if (cloudNoise == null) cloudNoise = CloudNoise.Create();
                     Shader.SetGlobalTexture(CloudNoiseId, cloudNoise);
                     Shader.SetGlobalFloat(CloudStepsId, cloudSteps);
-                    Shader.SetGlobalFloat(CloudLightStepsId, settings.EnhancedClouds >= 2 ? 5 : 3);
+                    Shader.SetGlobalFloat(CloudLightStepsId, settings.EnhancedClouds >= 2 ? (mobile ? 3 : 5) : (mobile ? 2 : 3));
                 }
                 var blur = settings.EnhancedMotionBlur;
                 motionBlur.active = blur > 0;
                 motionBlur.intensity.Override(blur >= 2 ? 0.6f : 0.25f);
                 motionBlur.quality.Override(blur >= 2 ? MotionBlurQuality.High : MotionBlurQuality.Low);
+                bloom.active = settings.EnhancedHdr;
+                Shader.SetGlobalFloat(GlowId, settings.EnhancedHdr ? 1 : 0);
+                camera.allowHDR = true;
                 var data = camera.GetUniversalAdditionalCameraData();
-                data.renderPostProcessing = blur > 0;
+                data.renderPostProcessing = blur > 0 || settings.EnhancedHdr;
                 data.requiresDepthTexture = blur > 0; // motion blur reprojects the depth
             }
             if (!enabled || !wind) Shader.SetGlobalFloat(WindStrengthId, 0);
+            if (!enabled) Shader.SetGlobalFloat(GlowId, 0);
             if (clouds != null) clouds.SetActive(enabled && cloudSteps > 0);
         }
 

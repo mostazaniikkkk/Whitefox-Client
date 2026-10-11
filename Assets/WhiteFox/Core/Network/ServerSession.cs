@@ -105,10 +105,16 @@ namespace WhiteFox.Core.Network
         }
 
         /// <summary>Opens the connection and starts the login (offline account).</summary>
+        /// <summary>Vanilla's sprinting speed modifier (LivingEntity.SPEED_MODIFIER_SPRINTING_UUID).</summary>
+        private static readonly Guid SprintingModifier = new Guid("662a6b8d-da3e-4c1c-8813-96ea6097278d");
+
+        /// <summary>ws:// or wss:// address: the connection goes over a WebSocket (BambiettaServer).</summary>
+        public Uri WebSocket;
+
         public async Task ConnectAsync()
         {
-            Status = $"Connecting to {Host}:{Port}";
-            await connection.ConnectAsync(Host, Port).ConfigureAwait(false);
+            Status = WebSocket != null ? "Connecting to " + WebSocket : $"Connecting to {Host}:{Port}";
+            await connection.ConnectAsync(Host, Port, 10000, WebSocket).ConfigureAwait(false);
             connection.StartReading();
             connection.Send(Protocol.Handshake.Intention, new OutBuffer().WriteVarInt(Protocol.Version).WriteString(Host).WriteShort(Port).WriteVarInt(2));
             State = ProtocolState.Login;
@@ -755,6 +761,42 @@ namespace WhiteFox.Core.Network
                     pending.Enqueue(game => game.OnExperience(bar, level, total));
                     break;
                 }
+                case Protocol.PlayS2C.SetCooldown:
+                {
+                    var item = buffer.ReadVarInt();
+                    var ticks = buffer.ReadVarInt();
+                    pending.Enqueue(game => game.OnCooldown(item, ticks));
+                    break;
+                }
+                case Protocol.PlayS2C.UpdateAttributes:
+                {
+                    // the synced attributes of an entity: base value and modifiers (add, multiply base, multiply total)
+                    var entityId = buffer.ReadVarInt();
+                    var count = buffer.ReadVarInt();
+                    var attributes = new Dictionary<string, double>();
+                    for (var i = 0; i < count; i++)
+                    {
+                        var key = buffer.ReadString();
+                        var value = buffer.ReadDouble();
+                        var modifiers = buffer.ReadVarInt();
+                        double add = 0, multiplyBase = 0, multiplyTotal = 1;
+                        for (var m = 0; m < modifiers; m++)
+                        {
+                            var modifier = buffer.ReadUuid();
+                            var amount = buffer.ReadDouble();
+                            var operation = buffer.ReadByte();
+                            // the sprinting modifier: the client's physics adds sprinting itself
+                            if (modifier == SprintingModifier) continue;
+                            if (operation == 0) add += amount;
+                            else if (operation == 1) multiplyBase += amount;
+                            else multiplyTotal *= 1 + amount;
+                        }
+                        var withAdd = value + add;
+                        attributes[key] = (withAdd + withAdd * multiplyBase) * multiplyTotal;
+                    }
+                    pending.Enqueue(game => game.OnAttributes(entityId, attributes));
+                    break;
+                }
                 case Protocol.PlayS2C.EntityEffect:
                 {
                     var entity = buffer.ReadVarInt();
@@ -894,6 +936,7 @@ namespace WhiteFox.Core.Network
                     if (status == 3) pending.Enqueue(game => game.OnEntityDeath(entityId));
                     else if (status == 4) pending.Enqueue(game => game.OnEntityAttack(entityId));
                     else if (status >= 47 && status <= 52) pending.Enqueue(game => game.OnItemBreak(entityId, status - 47));
+                    else if (status == 29 || status == 30) pending.Enqueue(game => game.OnShield(entityId, status == 30));
                     break;
                 }
                 case Protocol.PlayS2C.SetEquipment:
@@ -1317,7 +1360,7 @@ namespace WhiteFox.Core.Network
                     case 2: value = buffer.ReadVarLong(); break;
                     case 3: value = buffer.ReadFloat(); break;
                     case 4: value = buffer.ReadString(); break;
-                    case 5: value = buffer.ReadNbtText().ToPlain(); break;
+                    case 5: value = buffer.ReadNbtText().ToLegacy(); break; // text displays keep their colors
                     case 6: value = buffer.ReadBool() ? buffer.ReadNbtText().ToPlain() : null; break;
                     case 7: value = ReadSlot(buffer); break;
                     case 8: value = buffer.ReadBool(); break;
@@ -1469,6 +1512,15 @@ namespace WhiteFox.Core.Network
 
         // ------------------------------------------------------------------ sending (game thread)
 
+        /// <summary>A new render distance during the game: the server sends (and keeps) chunks for it.</summary>
+        public void UpdateViewDistance(int viewDistance)
+        {
+            if (viewDistance == ViewDistance) return;
+            ViewDistance = viewDistance;
+            if (State == ProtocolState.Play) SendClientInformation(Protocol.PlayC2S.ClientInformation);
+            else if (State == ProtocolState.Configuration) SendClientInformation(Protocol.ConfigC2S.ClientInformation);
+        }
+
         private void SendClientInformation(int packetId)
         {
             connection.Send(packetId, new OutBuffer()
@@ -1501,14 +1553,15 @@ namespace WhiteFox.Core.Network
         public void SendFlying(bool flying) => connection.Send(Protocol.PlayC2S.PlayerAbilities, new OutBuffer().WriteByte(flying ? 0x02 : 0x00));
 
         /// <summary>Use Item (right click with an item, not on a block): eating, bows, buckets...</summary>
-        public void SendUseItem() => connection.Send(Protocol.PlayC2S.UseItem, new OutBuffer().WriteVarInt(0).WriteVarInt(++sequence));
+        /// <summary>Use Item: hand 0 main, 1 off hand.</summary>
+        public void SendUseItem(int hand = 0) => connection.Send(Protocol.PlayC2S.UseItem, new OutBuffer().WriteVarInt(hand).WriteVarInt(++sequence));
 
         /// <summary>Player Action: 0 start digging, 1 cancel, 2 finish, 3 drop stack, 4 drop item, 5 release use item, 6 swap hands.</summary>
         public void SendPlayerAction(int status, BlockPos position, Direction face) =>
             connection.Send(Protocol.PlayC2S.PlayerAction, new OutBuffer().WriteVarInt(status).WritePosition(position).WriteByte((int)face).WriteVarInt(++sequence));
 
-        public void SendUseItemOn(BlockPos position, Direction face, float cursorX, float cursorY, float cursorZ) =>
-            connection.Send(Protocol.PlayC2S.UseItemOn, new OutBuffer().WriteVarInt(0).WritePosition(position).WriteVarInt((int)face)
+        public void SendUseItemOn(BlockPos position, Direction face, float cursorX, float cursorY, float cursorZ, int hand = 0) =>
+            connection.Send(Protocol.PlayC2S.UseItemOn, new OutBuffer().WriteVarInt(hand).WritePosition(position).WriteVarInt((int)face)
                 .WriteFloat(cursorX).WriteFloat(cursorY).WriteFloat(cursorZ).WriteBool(false).WriteVarInt(++sequence));
 
         public void SendClickContainer(int windowId, int stateId, int slot, int button, int mode, Dictionary<int, ItemStack> changed, ItemStack carried)

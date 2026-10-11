@@ -15,13 +15,15 @@ namespace WhiteFox.Core.Network
     /// <summary>
     /// TCP connection with Minecraft framing (Minosoft's NettyClient + pipeline): VarInt length prefix, optional zlib
     /// compression above a threshold, optional AES/CFB8 encryption of the whole stream. Packets are read on a
-    /// dedicated thread and handed to <see cref="PacketReceived"/> (still on that thread).
+    /// dedicated thread and handed to <see cref="PacketReceived"/> (still on that thread). With a ws:// or wss://
+    /// address the same bytes travel over a WebSocket instead (BambiettaServer).
     /// </summary>
     public sealed class NetworkConnection : IDisposable
     {
         public const int MaxPacketLength = 8 * 1024 * 1024;
 
         private TcpClient client;
+        private WebSocketStream webSocket;
         private Stream input;
         private CipherStream decryptor;
         private CipherStream encryptor;
@@ -35,12 +37,21 @@ namespace WhiteFox.Core.Network
         /// <summary>Raised once, with the reason, when the connection ends for any reason.</summary>
         public event Action<string> Disconnected;
 
-        public bool Connected => !closed && client != null && client.Connected;
+        public bool Connected => !closed && (webSocket != null ? webSocket.Open : client != null && client.Connected);
         public long BytesReceived { get; private set; }
         public long BytesSent { get; private set; }
 
-        public async Task ConnectAsync(string host, int port, int timeoutMilliseconds = 10000)
+        /// <summary>Connects over TCP, or over a WebSocket when <paramref name="webSocketUri"/> is given.</summary>
+        public async Task ConnectAsync(string host, int port, int timeoutMilliseconds = 10000, Uri webSocketUri = null)
         {
+            if (webSocketUri != null)
+            {
+                webSocket = await WebSocketStream.ConnectAsync(webSocketUri, timeoutMilliseconds).ConfigureAwait(false);
+                decryptor = new CipherStream(webSocket, false);
+                encryptor = new CipherStream(webSocket, true);
+                input = new BufferedStream(decryptor, 65536);
+                return;
+            }
             client = new TcpClient { NoDelay = true };
             var connect = client.ConnectAsync(host, port);
             if (await Task.WhenAny(connect, Task.Delay(timeoutMilliseconds)).ConfigureAwait(false) != connect)
@@ -148,6 +159,7 @@ namespace WhiteFox.Core.Network
             try
             {
                 client?.Close();
+                webSocket?.Close();
             }
             catch (Exception)
             {

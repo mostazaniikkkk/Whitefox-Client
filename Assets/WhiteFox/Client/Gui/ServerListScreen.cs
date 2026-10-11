@@ -258,7 +258,7 @@ namespace WhiteFox.Client.Gui
             try
             {
                 var (host, port) = await ServerAddress.ResolveAsync(server.Address);
-                status.Result = await ServerStatus.PingAsync(host, port);
+                status.Result = await ServerStatus.PingAsync(host, port, 7000, ServerAddress.WebSocketUri(server.Address));
             }
             catch (Exception exception)
             {

@@ -49,9 +49,24 @@ namespace WhiteFox.Core.Network
             }
         }
 
+        /// <summary>
+        /// ws:// and wss:// addresses connect over a WebSocket (BambiettaServer: the Minecraft protocol unchanged, on its
+        /// main port, 25565 unless the address names another). Null for normal addresses.
+        /// </summary>
+        public static Uri WebSocketUri(string address)
+        {
+            address = address?.Trim() ?? "";
+            if (!address.StartsWith("ws://", StringComparison.OrdinalIgnoreCase) && !address.StartsWith("wss://", StringComparison.OrdinalIgnoreCase)) return null;
+            if (!Uri.TryCreate(address, UriKind.Absolute, out var uri)) return null;
+            if (!uri.IsDefaultPort || address.IndexOf(':', uri.Scheme.Length + 3) >= 0) return uri;
+            return new UriBuilder(uri) { Port = 25565 }.Uri;
+        }
+
         /// <summary>The host and port to connect to (and to send in the handshake).</summary>
         public static async Task<(string host, int port)> ResolveAsync(string address)
         {
+            var webSocket = WebSocketUri(address);
+            if (webSocket != null) return (webSocket.Host, webSocket.Port);
             Split(address, out var host, out var port, out var explicitPort);
             if (explicitPort || IPAddress.TryParse(host, out _) || host == "localhost") return (host, port);
             try

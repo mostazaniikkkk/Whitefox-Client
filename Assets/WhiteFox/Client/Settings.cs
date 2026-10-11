@@ -156,6 +156,8 @@ namespace WhiteFox.Client
         public int EnhancedMotionBlur = 1;
         /// <summary>Enhanced mode: clouds 0 the vanilla boxes, 1 volumetric, 2 volumetric (high).</summary>
         public int EnhancedClouds = 1;
+        /// <summary>Enhanced mode: light emitting blocks glow (HDR colors and bloom).</summary>
+        public bool EnhancedHdr;
 
         /// <summary>Volume per sound category (master, music, records, weather, blocks, hostile, neutral, players, ambient, voice).</summary>
         public readonly float[] Volumes = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 };
@@ -235,6 +237,8 @@ namespace WhiteFox.Client
                     Graphics = GraphicsMode.Classic;
                     ViewDistance = 6;
                     RenderScale = 0.75f;
+                    // motion blur needs a depth copy and a full screen pass: too much for most phones
+                    EnhancedMotionBlur = 0;
                 }
                 // first run with the TOML configuration: take over what earlier versions kept in PlayerPrefs
                 LoadPlayerPrefs();
@@ -277,6 +281,7 @@ namespace WhiteFox.Client
             var enhanced = root.Table("enhanced");
             EnhancedMotionBlur = Mathf.Clamp(enhanced.GetInt("motion_blur", EnhancedMotionBlur), 0, 2);
             EnhancedClouds = Mathf.Clamp(enhanced.GetInt("clouds", EnhancedClouds), 0, 2);
+            EnhancedHdr = enhanced.GetBool("hdr", EnhancedHdr);
 
             var controls = root.Table("controls");
             MouseSensitivity = controls.GetFloat("mouse_sensitivity", MouseSensitivity);
@@ -344,6 +349,7 @@ namespace WhiteFox.Client
             var enhanced = root.Table("enhanced");
             enhanced["motion_blur"] = (long)EnhancedMotionBlur;
             enhanced["clouds"] = (long)EnhancedClouds;
+            enhanced["hdr"] = EnhancedHdr;
 
             var controls = root.Table("controls");
             controls["mouse_sensitivity"] = Real(MouseSensitivity);
@@ -420,6 +426,7 @@ namespace WhiteFox.Client
                     case "waving_plants": WavingPlants = number != 0; break;
                     case "enhanced_blur": EnhancedMotionBlur = number; break;
                     case "enhanced_clouds": EnhancedClouds = number; break;
+                    case "enhanced_hdr": EnhancedHdr = number != 0; break;
                     case "render_scale": RenderScale = real; break;
                 }
             }
@@ -467,6 +474,7 @@ namespace WhiteFox.Client
         {
             EnhancedMotionBlur = preset;
             EnhancedClouds = preset;
+            EnhancedHdr = preset >= 1;
             WavingPlants = true;
         }
 

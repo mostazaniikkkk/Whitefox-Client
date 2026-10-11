@@ -162,6 +162,14 @@ namespace WhiteFox.Client.Entities
                 }
                 return parts;
             }
+            if (block.Special == BlockEntityKind.Skull)
+            {
+                // BlockEntityWithoutLevelRenderer draws skull items turned by 180 degrees: the face looks at the viewer
+                foreach (var candidate in state.Block.States)
+                {
+                    if (candidate["rotation"] == "8") state = candidate;
+                }
+            }
             if (block.Special == BlockEntityKind.Chest)
             {
                 foreach (var candidate in state.Block.States)

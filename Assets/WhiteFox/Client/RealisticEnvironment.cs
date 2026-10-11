@@ -53,6 +53,8 @@ namespace WhiteFox.Client
         private Texture3D cloudNoise;
         private Vector2 cloudWind;
         private bool wavingPlants = true;
+        private float wetness;
+        private static readonly int WetnessId = Shader.PropertyToID("_WF_Wetness");
         private static readonly int CloudStepsId = Shader.PropertyToID("_WF_CloudSteps");
         private static readonly int CloudLightStepsId = Shader.PropertyToID("_WF_CloudLightSteps");
         private static readonly int CloudCoverageId = Shader.PropertyToID("_WF_CloudCoverage");
@@ -255,6 +257,9 @@ namespace WhiteFox.Client
             cloudWind += new Vector2(-Time.deltaTime * 0.6f, 0);
             cloudWind.x %= 4096;
             Shader.SetGlobalVector(CloudWindId, new Vector4(cloudWind.x, 0, cloudWind.y, 0));
+            // surfaces get wet within half a minute of rain and dry in about two minutes
+            wetness = Mathf.MoveTowards(wetness, Mathf.Clamp01(Rain), Time.deltaTime * (Rain > wetness ? 1 / 30f : 1 / 120f));
+            Shader.SetGlobalFloat(WetnessId, wetness);
             // leaves and plants sway harder in rain and storms
             Shader.SetGlobalFloat(WindStrengthId, wavingPlants ? 1.0f + 1.2f * Mathf.Clamp01(Rain) + 1.0f * Mathf.Clamp01(Thunder) : 0);
             Shader.SetGlobalFloat(CloudCoverageId, Mathf.Lerp(0.5f, 0.92f, Mathf.Clamp01(Rain)));

@@ -20,6 +20,12 @@ namespace WhiteFox.Client.Entities
         ThirdPersonRightHand,
         FirstPersonRightHand,
         Fixed,
+        /// <summary>No display transform (item displays).</summary>
+        None,
+        ThirdPersonLeftHand,
+        FirstPersonLeftHand,
+        Head,
+        Gui,
     }
 
     /// <summary>A renderable item: mesh in render space covering the unit cube, its material and display transforms.</summary>
@@ -33,8 +39,14 @@ namespace WhiteFox.Client.Entities
         /// <summary>Per display: translation (in blocks), rotation (degrees, applied x, y, z) and scale.</summary>
         public readonly Dictionary<ItemDisplay, (Vector3 translation, Vector3 rotation, Vector3 scale)> Display = new Dictionary<ItemDisplay, (Vector3, Vector3, Vector3)>();
 
-        public (Vector3 translation, Vector3 rotation, Vector3 scale) Get(ItemDisplay display) =>
-            Display.TryGetValue(display, out var value) ? value : (Vector3.zero, Vector3.zero, Vector3.one);
+        public (Vector3 translation, Vector3 rotation, Vector3 scale) Get(ItemDisplay display)
+        {
+            if (Display.TryGetValue(display, out var value)) return value;
+            // vanilla ItemTransforms: a missing left hand uses the right hand
+            if (display == ItemDisplay.ThirdPersonLeftHand && Display.TryGetValue(ItemDisplay.ThirdPersonRightHand, out value)) return value;
+            if (display == ItemDisplay.FirstPersonLeftHand && Display.TryGetValue(ItemDisplay.FirstPersonRightHand, out value)) return value;
+            return (Vector3.zero, Vector3.zero, Vector3.one);
+        }
     }
 
     /// <summary>
@@ -49,6 +61,10 @@ namespace WhiteFox.Client.Entities
             { ItemDisplay.ThirdPersonRightHand, "thirdperson_righthand" },
             { ItemDisplay.FirstPersonRightHand, "firstperson_righthand" },
             { ItemDisplay.Fixed, "fixed" },
+            { ItemDisplay.ThirdPersonLeftHand, "thirdperson_lefthand" },
+            { ItemDisplay.FirstPersonLeftHand, "firstperson_lefthand" },
+            { ItemDisplay.Head, "head" },
+            { ItemDisplay.Gui, "gui" },
         };
 
         private readonly ClientResources resources;
@@ -82,8 +98,17 @@ namespace WhiteFox.Client.Entities
             return model;
         }
 
-        private ItemModel Create(string item)
+        private ItemModel Create(string key)
         {
+            // a banner or shield with patterns: the item's json, the entity model parts built with the patterns
+            var item = key;
+            object patterns = null;
+            var bar = key.IndexOf('|');
+            if (bar > 0)
+            {
+                item = key.Substring(0, bar);
+                lock (PatternTags) PatternTags.TryGetValue(key, out patterns);
+            }
             var model = new ItemModel();
             JObject json = null;
             if (resources.Assets.TryGetText("assets/minecraft/models/item/" + item + ".json", out var text)) json = JObject.Parse(text);
@@ -104,7 +129,7 @@ namespace WhiteFox.Client.Entities
                 else if (block?.DefaultState.Model is BlockRenderModel render && render.Models[0].Quads.Length > 0) baked = render.Models[0];
                 if (baked == null)
                 {
-                    var parts = icons.SpecialParts?.Invoke(item, null);
+                    var parts = icons.SpecialParts?.Invoke(item, patterns);
                     if (parts == null || parts.Count == 0) return null;
                     model.Parts = parts;
                 }
@@ -306,11 +331,36 @@ namespace WhiteFox.Client.Entities
         }
 
         /// <summary>Item key with the glint: "name*" for items drawn with the enchantment glint.</summary>
-        public static string Key(ItemStack stack) => stack?.Item == null ? null : stack.Item.Name.Path + (ItemProperties.HasFoil(stack) ? "*" : "");
+        /// <summary>
+        /// The model key of a stack: the item name, "|" and the patterns for banners and shields that have some (their
+        /// model is built with them), "*" for the enchantment glint.
+        /// </summary>
+        public static string Key(ItemStack stack)
+        {
+            if (stack?.Item == null) return null;
+            var name = stack.Item.Name.Path;
+            var tag = ItemIcons.PatternTag(stack);
+            if (tag != null)
+            {
+                name += "|" + ItemIcons.PatternKey(tag);
+                lock (PatternTags) PatternTags[name] = tag;
+            }
+            return name + (ItemProperties.HasFoil(stack) ? "*" : "");
+        }
+
+        /// <summary>The BlockEntityTag of each patterned key (see <see cref="Key"/>).</summary>
+        private static readonly Dictionary<string, object> PatternTags = new Dictionary<string, object>();
 
         public static Matrix4x4 DisplayMatrix(ItemModel model, ItemDisplay display)
         {
             var (translation, rotation, scale) = model.Get(display);
+            // vanilla ItemTransform.apply(leftHand): the left hands mirror x
+            if (display == ItemDisplay.ThirdPersonLeftHand || display == ItemDisplay.FirstPersonLeftHand)
+            {
+                translation.x = -translation.x;
+                rotation.y = -rotation.y;
+                rotation.z = -rotation.z;
+            }
             return Matrix4x4.Translate(translation)
                    * EntityRenderer.RotX(rotation.x * Mathf.Deg2Rad) * EntityRenderer.RotY(rotation.y * Mathf.Deg2Rad) * EntityRenderer.RotZ(rotation.z * Mathf.Deg2Rad)
                    * Matrix4x4.Scale(scale) * Matrix4x4.Translate(new Vector3(-0.5f, -0.5f, -0.5f));

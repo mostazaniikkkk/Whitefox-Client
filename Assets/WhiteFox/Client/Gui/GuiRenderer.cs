@@ -123,31 +123,7 @@ namespace WhiteFox.Client.Gui
         }
 
         /// <summary>Word wraps text to a width in GUI pixels.</summary>
-        public string[] Wrap(string text, float width)
-        {
-            var lines = new System.Collections.Generic.List<string>();
-            foreach (var paragraph in (text ?? "").Split('\n'))
-            {
-                var line = "";
-                foreach (var word in paragraph.Split(' '))
-                {
-                    var candidate = line.Length == 0 ? word : line + " " + word;
-                    if (Font.Width(candidate) > width && line.Length > 0)
-                    {
-                        lines.Add(line);
-                        line = word;
-                    }
-                    else
-                    {
-                        line = candidate;
-                    }
-                }
-                lines.Add(line);
-            }
-            // formatting continues on the next line like in vanilla
-            for (var i = 1; i < lines.Count; i++) lines[i] = GuiFont.ActiveCodes(lines[i - 1]) + lines[i];
-            return lines.ToArray();
-        }
+        public string[] Wrap(string text, float width) => Font.Wrap(text, width);
 
         // ------------------------------------------------------------------ widgets
 

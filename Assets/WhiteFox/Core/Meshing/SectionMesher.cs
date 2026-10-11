@@ -39,6 +39,8 @@ namespace WhiteFox.Core.Meshing
         public readonly List<int> TranslucentIndices = new List<int>();
         /// <summary>Water surfaces get their own submesh so the realistic renderer can use a water shader.</summary>
         public readonly List<int> WaterIndices = new List<int>();
+        /// <summary>Clear glass and glass panes: cutout in the classic mode, a reflecting pane in the realistic one.</summary>
+        public readonly List<int> GlassIndices = new List<int>();
 
         /// <summary>Which faces see each other through the section (cave culling), see <see cref="OcclusionGraph"/>.</summary>
         public ulong Occlusion = OcclusionGraph.All;
@@ -258,6 +260,7 @@ namespace WhiteFox.Core.Meshing
                         var tint = GetTint(state.Block, x, y, z);
                         var emission = state.Luminance / 15.0f;
                         var wind = WindOf(state);
+                        var glass = state.Block.Name.Path == "glass" || state.Block.Name.Path == "glass_pane";
 
                         foreach (var quad in model.Quads)
                         {
@@ -283,7 +286,7 @@ namespace WhiteFox.Core.Meshing
                                 positions[i] = quad.Positions[i] + new Vector3(x, y, z);
                                 uvs[i] = quad.UVs[i];
                             }
-                            var indices = quad.Texture.Transparency == TextureTransparency.Translucent ? data.TranslucentIndices : data.OpaqueIndices;
+                            var indices = quad.Texture.Transparency == TextureTransparency.Translucent ? data.TranslucentIndices : glass ? data.GlassIndices : data.OpaqueIndices;
                             if (wind != Wind.None)
                             {
                                 for (var i = 0; i < 4; i++)

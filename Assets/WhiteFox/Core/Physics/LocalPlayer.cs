@@ -100,6 +100,8 @@ namespace WhiteFox.Core.Physics
         public bool Flying;
         public bool AllowFlying = true;
         public float MovementSpeed = 0.1f;
+        /// <summary>The server sent the movement speed attribute: Speed and Slowness are already in it.</summary>
+        public bool MovementSpeedFromServer;
         public float FlyingSpeed = 0.05f;
         public Pose Pose = Pose.Standing;
         public Gamemode Gamemode = Gamemode.Creative;
@@ -114,6 +116,8 @@ namespace WhiteFox.Core.Physics
 
         /// <summary>Using an item (eating, drawing a bow...): movement is slowed down to 20%.</summary>
         public bool UsingItem;
+        /// <summary>The item in use is the one in the off hand.</summary>
+        public bool UsingOffHand;
         public int Food = 20;
         public readonly Dictionary<int, StatusEffect> Effects = new Dictionary<int, StatusEffect>();
 

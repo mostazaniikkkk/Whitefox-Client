@@ -68,7 +68,7 @@ Shader "WhiteFox/Sky"
                     color += star * _WF_NightFactor * saturate(direction.y * 3.0) * 1.5 * clear;
                 }
                 float transmittance;
-                float3 clouds = Clouds(_WorldSpaceCameraPos, direction, input.positionCS.xy, transmittance);
+                float3 clouds = CloudsAt(_WorldSpaceCameraPos, direction, input.positionCS.xy, transmittance);
                 return half4(color * transmittance + clouds, 1.0);
             }
             ENDHLSL

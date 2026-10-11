@@ -112,9 +112,11 @@ namespace WhiteFox.Client
         }
 
         /// <summary>Switches every section to other materials (classic / realistic rendering).</summary>
-        /// <summary>Which of the opaque / translucent / water parts each section has (bits 0, 1, 2).</summary>
+        /// <summary>Which of the opaque / translucent / water / glass parts each section has (bits 0, 1, 2, 3).</summary>
         private readonly Dictionary<SectionPos, int> parts = new Dictionary<SectionPos, int>();
         private readonly Dictionary<int, Material[]> partMaterials = new Dictionary<int, Material[]>();
+        /// <summary>Opaque, translucent, water and glass: the materials arrays have one material for each.</summary>
+        public const int PartCount = 4;
 
         /// <summary>
         /// The materials of a section: only those of its non-empty parts. An empty submesh still costs a draw call, and
@@ -125,7 +127,7 @@ namespace WhiteFox.Client
         {
             if (partMaterials.TryGetValue(mask, out var list)) return list;
             var result = new List<Material>();
-            for (var i = 0; i < 3; i++)
+            for (var i = 0; i < PartCount; i++)
             {
                 if ((mask & (1 << i)) != 0) result.Add(materials[i]);
             }
@@ -143,7 +145,7 @@ namespace WhiteFox.Client
             {
                 var section = pair.Value;
                 var renderer = section.GetComponent<MeshRenderer>();
-                renderer.sharedMaterials = MaterialsFor(parts.TryGetValue(pair.Key, out var mask) ? mask : 7);
+                renderer.sharedMaterials = MaterialsFor(parts.TryGetValue(pair.Key, out var mask) ? mask : (1 << PartCount) - 1);
                 renderer.shadowCastingMode = castShadows ? ShadowCastingMode.On : ShadowCastingMode.Off;
             }
             cullCamera = null; // apply the shadow modes of hidden sections again
@@ -390,19 +392,21 @@ namespace WhiteFox.Client
             var opaque = data.OpaqueIndices.Count;
             var translucent = data.TranslucentIndices.Count;
             var water = data.WaterIndices.Count;
-            var indices = new int[opaque + translucent + water];
+            var glass = data.GlassIndices.Count;
+            var indices = new int[opaque + translucent + water + glass];
             data.OpaqueIndices.CopyTo(indices, 0);
             data.TranslucentIndices.CopyTo(indices, opaque);
             data.WaterIndices.CopyTo(indices, opaque + translucent);
+            data.GlassIndices.CopyTo(indices, opaque + translucent + water);
             mesh.SetIndexBufferParams(indices.Length, IndexFormat.UInt32);
             mesh.SetIndexBufferData(indices, 0, 0, indices.Length, UploadFlags);
 
             // one submesh per non-empty part, with the matching materials
             var bounds = new Bounds(new Vector3(8, 8, -8), new Vector3(16, 16, 16));
-            var counts = new[] { opaque, translucent, water };
+            var counts = new[] { opaque, translucent, water, glass };
             var mask = 0;
             var submeshes = 0;
-            for (var i = 0; i < 3; i++)
+            for (var i = 0; i < PartCount; i++)
             {
                 if (counts[i] > 0)
                 {
@@ -413,7 +417,7 @@ namespace WhiteFox.Client
             mesh.subMeshCount = Mathf.Max(1, submeshes);
             var start = 0;
             var index = 0;
-            for (var i = 0; i < 3; i++)
+            for (var i = 0; i < PartCount; i++)
             {
                 if (counts[i] > 0) mesh.SetSubMesh(index++, new SubMeshDescriptor(start, counts[i]) { bounds = bounds, vertexCount = vertexCount }, UploadFlags);
                 start += counts[i];

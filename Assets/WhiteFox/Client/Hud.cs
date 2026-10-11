@@ -101,6 +101,13 @@ namespace WhiteFox.Client
                     GUI.DrawTexture(new Rect(x, y, 16, 16), icon);
                     ItemIcons.DrawDurability(gui, new Rect(x, y, 16, 16), stack);
                     if (Core.Data.ItemProperties.HasFoil(stack)) icons.DrawGlint(new Rect(x, y, 16, 16), icon);
+                    // cooldown (vanilla): a white veil over the lower part, shrinking as it runs out
+                    var cooldown = session.CooldownLeft(stack?.Item, 0);
+                    if (cooldown > 0)
+                    {
+                        var top = y + Mathf.Floor(16 * (1 - cooldown));
+                        gui.Fill(new Rect(x, top, 16, y + 16 - top), new Color(1, 1, 1, 0.5f));
+                    }
                 }
                 else if (icon == null) gui.TextCentered(item.Substring(0, Math.Min(2, item.Length)), x + 8, y + 4);
                 var count = session.HotbarCounts[slot];
@@ -174,13 +181,14 @@ namespace WhiteFox.Client
                     gui.Text(level, x, y, new Color32(0x80, 0xFF, 0x20, 0xFF), false);
                 }
 
-                // armor (above the hearts)
+                // armor (above the hearts, and above the golden hearts)
                 var armor = session.ArmorPoints;
+                var absorptionRows = Mathf.CeilToInt(Mathf.CeilToInt(session.Absorption) / 20f);
                 if (armor > 0)
                 {
                     for (var i = 0; i < 10; i++)
                     {
-                        var rect = new Rect(hotbarX + i * 8, height - 49, 9, 9);
+                        var rect = new Rect(hotbarX + i * 8, height - 49 - absorptionRows * 10, 9, 9);
                         gui.Sprite(armor >= i * 2 + 2 ? "hud/armor_full" : armor == i * 2 + 1 ? "hud/armor_half" : "hud/armor_empty", rect);
                     }
                 }
@@ -203,6 +211,14 @@ namespace WhiteFox.Client
                     gui.Sprite("hud/heart/container", rect);
                     if (health >= i * 2 + 2) gui.Sprite("hud/heart/full", rect);
                     else if (health == i * 2 + 1) gui.Sprite("hud/heart/half", rect);
+                }
+                // absorption: golden hearts in rows above (vanilla), the armor moves up with them
+                var absorption = Mathf.CeilToInt(session.Absorption);
+                for (var i = 0; i * 2 < absorption; i++)
+                {
+                    var rect = new Rect(hotbarX + i % 10 * 8, height - 49 - i / 10 * 10, 9, 9);
+                    gui.Sprite("hud/heart/container", rect);
+                    gui.Sprite(absorption >= i * 2 + 2 ? "hud/heart/absorbing_full" : "hud/heart/absorbing_half", rect);
                 }
                 for (var i = 0; i < 10; i++)
                 {
@@ -229,7 +245,7 @@ namespace WhiteFox.Client
 
             DrawServerUi(session);
             DrawChat(session, chat);
-            if (input.DebugScreen) DrawDebug(session, client, fps);
+            if (input.DebugScreen) DrawDebug(session, client, fps, input.TouchActive);
         }
 
         /// <summary>Active status effects in the top right corner (vanilla effect icons on their background).</summary>
@@ -250,7 +266,7 @@ namespace WhiteFox.Client
             }
         }
 
-        private void DrawDebug(GameSession session, WhiteFoxClient client, float fps)
+        private void DrawDebug(GameSession session, WhiteFoxClient client, float fps, bool touch)
         {
             var player = session.Player;
             var position = player.Position;
@@ -259,9 +275,9 @@ namespace WhiteFox.Client
             var light = session.World.GetLight(block.X, block.Y, block.Z);
             var left = new List<string>
             {
-                "WhiteFox 2.2 (" + Protocol.VersionName + ")",
+                "WhiteFox 2.3 (" + Protocol.VersionName + ")",
                 $"{fps:0} fps, graphics: {Settings.GraphicsName(client.Settings.Graphics).ToLowerInvariant()}",
-                server == null ? "Local test world" : $"{server.Host}:{server.Port} as {server.Username}, {server.State}",
+                server == null ? "Local test world" : $"{(server.WebSocket != null ? server.WebSocket.Scheme + "://" : "")}{server.Host}:{server.Port} as {server.Username}, {server.State}",
                 server == null ? null : $"Network: {server.BytesReceived / 1024} KiB in, {server.BytesSent / 1024} KiB out, {server.PendingPackets} queued",
                 $"C: {client.Renderer.VisibleCount}/{client.Renderer.SectionCount} sections{(client.Renderer.CullingEnabled ? "" : " (no culling)")}, queue {client.Renderer.QueueSize} (+{client.Renderer.RunningCount}), {session.World.ChunkCount} chunks",
                 client.DebugInfo,
@@ -304,7 +320,8 @@ namespace WhiteFox.Client
                 right.Add(target.State.Block.Name.ToString());
                 foreach (var property in target.State.PropertyValues()) right.Add(property.Key + ": " + property.Value);
             }
-            y = 2f;
+            // touch screens: below the buttons in the top right corner
+            y = touch ? 28f : 2f;
             foreach (var line in right)
             {
                 if (line.Length > 0)

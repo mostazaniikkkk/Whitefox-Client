@@ -161,6 +161,8 @@ namespace WhiteFox.Core.Network
             public const int SetTitle = 0x63;
             public const int TitleTimes = 0x64;
             public const int UpdateAdvancements = 0x70;
+            public const int UpdateAttributes = 0x71;
+            public const int SetCooldown = 0x16;
             public const int ChunkBiomes = 0x0E;
             public const int WorldEvent = 0x26;
             public const int Particle = 0x27;

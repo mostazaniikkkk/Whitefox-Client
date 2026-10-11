@@ -56,7 +56,7 @@ Shader "WhiteFox/EnhancedClouds"
                 float3 target = ComputeWorldSpacePosition(uv, depth, UNITY_MATRIX_I_VP);
                 float3 direction = normalize(target - _WorldSpaceCameraPos);
                 float transmittance;
-                float3 light = Clouds(_WorldSpaceCameraPos, direction, input.positionCS.xy, transmittance);
+                float3 light = CloudsAt(_WorldSpaceCameraPos, direction, input.positionCS.xy, transmittance);
                 // soft shoulder: bright sunlit tops stay below white instead of clipping
                 float3 color = 1.0 - exp(-light * 1.6);
                 return half4(color, transmittance);

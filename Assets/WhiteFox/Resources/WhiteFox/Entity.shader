@@ -60,10 +60,15 @@ Shader "WhiteFox/Entity"
             #pragma multi_compile_fog
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
             #include "WhiteFoxCommon.hlsl"
+            #include "WhiteFoxClouds.hlsl"
 
             float _WF_ModernEntities;
             // inventory icons of models with "gui_light": "front" (banners, shields): lit straight from the viewer
             float _WF_ItemFrontLight;
+            // inventory icons of entity models (heads, chests...): shaded like block icons, by the face direction in the
+            // item's own space (the icon's gui rotation undone), not by world lights the turned item faces away from
+            float _WF_IconShading;
+            float4x4 _WF_IconRotation;
             float _WF_DayLight;
             float _WF_Brightness;
             float4 _WF_DynamicLights[8];
@@ -95,6 +100,12 @@ Shader "WhiteFox/Entity"
                 float3 light0 = normalize(float3(0.2, 1.0, 0.7));
                 float3 light1 = normalize(float3(-0.2, 1.0, -0.7));
                 float diffuse = min(1.0, 0.4 + 0.6 * (saturate(dot(normal, light0)) + saturate(dot(normal, light1))));
+                if (_WF_IconShading > 0.5)
+                {
+                    // vanilla block face shading: top 1, bottom 0.5, north/south 0.8, east/west 0.6
+                    float3 n = normalize(mul((float3x3)_WF_IconRotation, normal));
+                    diffuse = n.x * n.x * 0.6 + n.z * n.z * 0.8 + n.y * n.y * (n.y > 0.0 ? 1.0 : 0.5);
+                }
                 diffuse = lerp(diffuse, 1.0, _WF_ItemFrontLight);
                 float blockLevel = _Light.x;
                 for (int i = 0; i < 8; i++)
@@ -125,7 +136,7 @@ Shader "WhiteFox/Entity"
                     float skyVisibility = _Light.y * _Light.y;
                     Light mainLight = GetMainLight(TransformWorldToShadowCoord(input.positionWS));
                     // no sun where the sky never reaches (the shadow map leaks through block seams underground)
-                    float3 direct = mainLight.color * mainLight.shadowAttenuation * saturate(dot(normal, mainLight.direction)) * smoothstep(0.0, 0.35, _Light.y);
+                    float3 direct = mainLight.color * mainLight.shadowAttenuation * saturate(dot(normal, mainLight.direction)) * smoothstep(0.0, 0.35, _Light.y) * CloudShadow(input.positionWS, mainLight.direction);
                     float3 ambient = WF_SkyAmbient(normal) * skyVisibility * _WF_AmbientStrength;
                     float3 lights = 0;
                 #if defined(_ADDITIONAL_LIGHTS)

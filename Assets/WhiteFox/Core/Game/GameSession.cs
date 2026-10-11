@@ -274,8 +274,59 @@ namespace WhiteFox.Core.Game
         /// <summary>A jukebox starts (sound event of the disc) or stops (null) playing at a position.</summary>
         public event Action<BlockPos, string> Record;
 
+        /// <summary>
+        /// The ender dragon is hit through its 8 parts (vanilla EnderDragonPart, ids right after the dragon's): head 0,
+        /// neck 1, body 2, three tail parts, two wings. Only the head takes the full damage. The part is picked from where
+        /// the look ray meets the dragon, with the part offsets of EnderDragon.aiStep.
+        /// </summary>
+        private int DragonPartHit(Entity target)
+        {
+            if (target.Type?.Name.Path != "ender_dragon") return target.Id;
+            var eye = Player.EyePosition;
+            var front = MathUtil.Front(Player.Yaw, Player.Pitch);
+            Entities.Raycast(eye, front, 8, out var distance);
+            var hit = eye + front * distance;
+            var radians = target.Yaw * MathUtil.DegToRad;
+            // the dragon's own "forward" (its yaw points backwards): sin, -cos; to the side: cos, sin
+            var forwardX = Math.Sin(radians);
+            var forwardZ = -Math.Cos(radians);
+            var dx = hit.X - target.Position.X;
+            var dz = hit.Z - target.Position.Z;
+            var along = dx * forwardX + dz * forwardZ;
+            var side = dx * forwardZ * -1 + dz * forwardX;
+            int part;
+            if (along > 4.5) part = 0; // head
+            else if (along > 2.5) part = 1; // neck
+            else if (Math.Abs(side) > 3) part = side > 0 ? 6 : 7; // wings
+            else if (along > -2) part = 2; // body
+            else part = along > -4 ? 3 : along > -6 ? 4 : 5; // tail
+            return target.Id + 1 + part;
+        }
+
         public void OnWorldEvent(int type, BlockPos position, int data)
         {
+            if (type == 2002 || type == 2007)
+            {
+                // splash (2002) and lingering-like instant (2007) potion breaking: the sound and a cloud in its color
+                var center = new Vec3d(position.X + 0.5, position.Y, position.Z + 0.5);
+                PlaySound("entity.splash_potion.break", center, 1, 0.9f + (float)SoundRandom.NextDouble() * 0.1f, SoundCategory.Neutral);
+                var color = new Vec3d(((data >> 16) & 0xFF) / 255.0, ((data >> 8) & 0xFF) / 255.0, (data & 0xFF) / 255.0);
+                for (var i = 0; i < 40; i++)
+                {
+                    var angle = SoundRandom.NextDouble() * Math.PI * 2;
+                    var radius = SoundRandom.NextDouble() * 1.5;
+                    Particle?.Invoke(new ParticleRequest
+                    {
+                        Name = "entity_effect",
+                        Position = center + new Vec3d(Math.Cos(angle) * radius, SoundRandom.NextDouble() * 0.6, Math.Sin(angle) * radius),
+                        Offset = color,
+                        Speed = 1,
+                        Count = 0,
+                        Scale = 1,
+                    });
+                }
+                return;
+            }
             if (type == 1010)
             {
                 // play record: data is the disc item id (music_disc_cat -> music_disc.cat)
@@ -401,10 +452,15 @@ namespace WhiteFox.Core.Game
             TickWaterSounds();
             var dx = Player.Position.X - Player.PreviousPosition.X;
             var dz = Player.Position.Z - Player.PreviousPosition.Z;
-            if (!Player.OnGround || Player.Flying || Player.Riding || Player.InWater) return;
-            stepDistance += (float)Math.Sqrt(dx * dx + dz * dz) * 0.6f;
+            if (Player.Flying || Player.Riding || Player.InWater) return;
+            // on ladders, vines and scaffolding the climbing counts too (vanilla Entity.move: moveDist with dy on
+            // climbable blocks), with the step sound of the block climbed
+            var climbing = Player.Climbing && !Player.OnGround;
+            if (!Player.OnGround && !climbing) return;
+            var dy = climbing ? Player.Position.Y - Player.PreviousPosition.Y : 0;
+            stepDistance += (float)Math.Sqrt(dx * dx + dy * dy + dz * dz) * 0.6f;
             if (stepDistance <= nextStep) return;
-            var below = BlockPos.Floor(Player.Position.X, Player.Position.Y - 0.2, Player.Position.Z);
+            var below = climbing ? BlockPos.Floor(Player.Position) : BlockPos.Floor(Player.Position.X, Player.Position.Y - 0.2, Player.Position.Z);
             var state = World.GetBlock(below);
             if (state == null) return;
             nextStep = stepDistance + 1;
@@ -552,6 +608,8 @@ namespace WhiteFox.Core.Game
             movementInput.Sprint |= doubleTapSprint;
             Player.Input = movementInput;
             Player.Food = Food;
+            Entities.OwnId = Server?.EntityId ?? -1;
+            Entities.OwnEyePosition = Player.EyePosition;
             Entities.Tick();
             World.BlockEntities.Tick();
             if (Player.SwingTime >= 0 && ++Player.SwingTime >= 6) Player.SwingTime = -1;
@@ -562,6 +620,8 @@ namespace WhiteFox.Core.Game
             TickBucketSounds();
             TickGliding();
             TickEntityItemUse();
+            TickArrows();
+            TickPotionParticles();
             if (!Player.Riding) movement?.Tick();
 
             if (IsRemote && SelectedSlot != sentSlot)
@@ -625,7 +685,7 @@ namespace WhiteFox.Core.Game
             {
                 if (Input.AttackPressed)
                 {
-                    Server?.SendInteract(TargetEntity.Id, 1, Player.Pose == Pose.Sneaking);
+                    Server?.SendInteract(DragonPartHit(TargetEntity), 1, Player.Pose == Pose.Sneaking);
                     Server?.SendSwingArm();
                     Player.Swing();
                 }
@@ -658,12 +718,15 @@ namespace WhiteFox.Core.Game
             var heldStack = Inventory.Player.Slots[36 + SelectedSlot];
             var held = heldStack?.Item;
             var isBlockItem = held != null && Resources.Blocks.Get(held.Name) != null;
+            var offHand = Inventory.Player.Slots[45]?.Item;
+            var offIsBlock = offHand != null && Resources.Blocks.Get(offHand.Name) != null;
 
             if (usingItem)
             {
                 usingTicks++;
-                if (heldStack != null) ItemUseEffects(heldStack, usingTicks, Player.EyePosition, Player.Yaw, Player.Pitch, Player.Position);
-                if (Input.UseHeld && held != null) return;
+                var usedStack = Player.UsingOffHand ? Inventory.Player.Slots[45] : heldStack;
+                if (usedStack != null) ItemUseEffects(usedStack, usingTicks, Player.EyePosition, Player.Yaw, Player.Pitch, Player.Position);
+                if (Input.UseHeld && usedStack != null) return;
                 Riptide(heldStack, usingTicks);
                 usingItem = false;
                 Player.UsingItem = false;
@@ -683,7 +746,11 @@ namespace WhiteFox.Core.Game
                 Player.Swing();
                 if (IsRemote)
                 {
-                    Server.SendUseItemOn(hit.Position, hit.Face, (float)(hit.Point.X - hit.Position.X), (float)(hit.Point.Y - hit.Position.Y), (float)(hit.Point.Z - hit.Position.Z));
+                    float cursorX = (float)(hit.Point.X - hit.Position.X), cursorY = (float)(hit.Point.Y - hit.Position.Y), cursorZ = (float)(hit.Point.Z - hit.Position.Z);
+                    Server.SendUseItemOn(hit.Position, hit.Face, cursorX, cursorY, cursorZ);
+                    // vanilla MultiPlayerGameMode: when the main hand does nothing there (no block in it, a block that
+                    // is not opened or switched), the off hand gets its turn: a torch or block in the off hand is placed
+                    if (!isBlockItem && offIsBlock && !Interactive(hit.State)) Server.SendUseItemOn(hit.Position, hit.Face, cursorX, cursorY, cursorZ, 1);
                     interacted = Placement.IsReplaceable(hit.State) ? hit.Position : hit.Position.Offset(hit.Face);
                     if (hit.State["open"] != null) interacted = hit.Position;
                     interactedTick = Ticks;
@@ -693,9 +760,22 @@ namespace WhiteFox.Core.Game
                 {
                     PlaceLocal(hit);
                 }
-                if (isBlockItem) return;
+                if (isBlockItem || offIsBlock && !Interactive(hit.State)) return;
             }
-            if (held == null || isBlockItem || !IsRemote) return;
+            if (!IsRemote) return;
+            // nothing to use in the main hand: the off hand (a shield, food, a bow) is used instead
+            var useOffHand = (held == null || isBlockItem || !Resources.ItemProperties.IsUsable(held, Food)) && offHand != null && !offIsBlock
+                             && Resources.ItemProperties.IsUsable(offHand, Food);
+            if (useOffHand)
+            {
+                Server.SendUseItem(1);
+                usingItem = true;
+                usingTicks = 0;
+                Player.UsingItem = true;
+                Player.UsingOffHand = true;
+                return;
+            }
+            if (held == null || isBlockItem) return;
             Server.SendUseItem();
             // the book and quill editor is opened by the client itself (vanilla Player.openItemGui)
             if (held.Name.Path == "writable_book" && Input.UsePressed) BookOpened?.Invoke(heldStack, SelectedSlot, true);
@@ -704,7 +784,20 @@ namespace WhiteFox.Core.Game
                 usingItem = true;
                 usingTicks = 0;
                 Player.UsingItem = true;
+                Player.UsingOffHand = false;
             }
+        }
+
+        /// <summary>Blocks a right click opens or switches (the off hand does not place a block against them).</summary>
+        private static bool Interactive(BlockState state)
+        {
+            if (state == null) return false;
+            if (state.Block.Special != Worlds.BlockEntityKind.None) return true;
+            if (state["open"] != null || state["powered"] != null && !state.Block.Name.Path.Contains("rail")) return true;
+            var path = state.Block.Name.Path;
+            return path.EndsWith("crafting_table") || path.EndsWith("anvil") || path.EndsWith("_bed") || path == "loom" || path == "stonecutter"
+                   || path == "grindstone" || path == "cartography_table" || path == "smithing_table" || path.EndsWith("button") || path == "lever"
+                   || path == "repeater" || path == "comparator" || path == "note_block" || path == "cake" || path == "respawn_anchor";
         }
 
         /// <summary>Q drops one item, Ctrl+Q the stack; F swaps main and off hand (Player Action 4/3/6).</summary>
@@ -929,10 +1022,89 @@ namespace WhiteFox.Core.Game
         /// <summary>Projectiles drawn as their item (vanilla ThrownItemRenderer), item in entity data 8.</summary>
         public static readonly HashSet<string> ThrownItems = new HashSet<string> { "snowball", "egg", "ender_pearl", "potion", "experience_bottle", "eye_of_ender", "fireball", "small_fireball", "firework_rocket" };
 
+        /// <summary>Update Attributes: the ones the client uses (the jump strength of horses).</summary>
+        public void OnAttributes(int id, Dictionary<string, double> attributes)
+        {
+            if (Server != null && id == Server.EntityId)
+            {
+                // the own movement speed (Speed / Slowness effects included, sprinting is added by the physics)
+                if (attributes.TryGetValue("minecraft:generic.movement_speed", out var speed) || attributes.TryGetValue("generic.movement_speed", out speed))
+                {
+                    Player.MovementSpeed = (float)speed;
+                    Player.MovementSpeedFromServer = true;
+                }
+                return;
+            }
+            var entity = Entities.Get(id);
+            if (entity == null) return;
+            foreach (var pair in attributes)
+            {
+                if (pair.Key == "minecraft:horse.jump_strength" || pair.Key == "horse.jump_strength") entity.JumpStrength = pair.Value;
+            }
+        }
+
+        /// <summary>Set Cooldown: the item can not be used for a while (ender pearls, chorus fruit, shields).</summary>
+        public void OnCooldown(int itemId, int ticks)
+        {
+            if (ticks <= 0) cooldowns.Remove(itemId);
+            else cooldowns[itemId] = (Ticks, ticks);
+        }
+
+        private readonly Dictionary<int, (long start, int duration)> cooldowns = new Dictionary<int, (long start, int duration)>();
+
+        /// <summary>How much of the cooldown of an item is left (1 just started, 0 none), like vanilla ItemCooldowns.</summary>
+        public float CooldownLeft(Item item, float partial)
+        {
+            if (item == null || !cooldowns.TryGetValue(item.Id, out var cooldown)) return 0;
+            var left = (cooldown.start + cooldown.duration - (Ticks + partial)) / cooldown.duration;
+            if (left <= 0)
+            {
+                cooldowns.Remove(item.Id);
+                return 0;
+            }
+            return (float)Math.Min(1, left);
+        }
+
+        /// <summary>Golden hearts (the own player's absorption, entity data 15).</summary>
+        public float Absorption;
+        private int OwnPotionColor;
+        private bool OwnPotionAmbient;
+
+        /// <summary>
+        /// Effect particles around living entities (vanilla LivingEntity.tickEffects): swirls in the mixed color of their
+        /// effects, every other tick on average, rarely and faint for beacon effects.
+        /// </summary>
+        private void TickPotionParticles()
+        {
+            foreach (var entity in Entities.Entities.Values)
+            {
+                if (entity.PotionColor > 0 && !entity.Invisible) PotionParticle(entity.PotionColor, entity.PotionAmbient, entity.Position, entity.Width, entity.Height);
+            }
+            if (OwnPotionColor > 0) PotionParticle(OwnPotionColor, OwnPotionAmbient, Player.Position, 0.6f, 1.8f);
+        }
+
+        private void PotionParticle(int color, bool ambient, Vec3d position, float width, float height)
+        {
+            var spawn = ambient ? SoundRandom.Next(15) == 0 && SoundRandom.Next(5) == 0 : SoundRandom.Next(2) == 0;
+            if (!spawn) return;
+            Particle?.Invoke(new ParticleRequest
+            {
+                Name = ambient ? "ambient_entity_effect" : "entity_effect",
+                Position = position + new Vec3d((SoundRandom.NextDouble() - 0.5) * width, SoundRandom.NextDouble() * height, (SoundRandom.NextDouble() - 0.5) * width),
+                Offset = new Vec3d(((color >> 16) & 0xFF) / 255.0, ((color >> 8) & 0xFF) / 255.0, (color & 0xFF) / 255.0),
+                Speed = 1,
+                Count = 0,
+                Scale = 1,
+            });
+        }
+
         public void OnEntityData(int id, Dictionary<int, object> values)
         {
             if (Server != null && id == Server.EntityId)
             {
+                if (values.TryGetValue(15, out var absorption) && absorption is float absorptionValue) Absorption = absorptionValue;
+                if (values.TryGetValue(10, out var ownColor) && ownColor is int ownColorValue) OwnPotionColor = ownColorValue;
+                if (values.TryGetValue(11, out var ownAmbient) && ownAmbient is bool ownAmbientValue) OwnPotionAmbient = ownAmbientValue;
                 if (values.TryGetValue(1, out var air) && air is int airValue) Air = airValue;
                 // the server ends gliding (landing, elytra broke): flag 0x80
                 if (values.TryGetValue(0, out var ownFlags) && ownFlags is byte flagsValue && (flagsValue & 0x80) == 0 && Player.FallFlying && Ticks - fallFlyingStart > 5) Player.FallFlying = false;
@@ -941,6 +1113,18 @@ namespace WhiteFox.Core.Game
             var entity = Entities.Get(id);
             if (entity == null) return;
             var path = entity.Type?.Name.Path;
+            if (path != null && path.EndsWith("_display"))
+            {
+                // block, item and text displays: their own indices from 8 on
+                if (entity.Display == null) entity.Display = new DisplayData();
+                foreach (var pair in values)
+                {
+                    if (pair.Key >= 8) entity.Display.Apply(path, pair.Key, pair.Value, Ticks);
+                    else if (pair.Key == 0 && pair.Value is byte displayFlags) entity.Flags = displayFlags;
+                }
+                entity.Display.EndUpdate(Ticks);
+                return;
+            }
             foreach (var pair in values)
             {
                 switch (pair.Key)
@@ -971,6 +1155,24 @@ namespace WhiteFox.Core.Game
                         break;
                     case int dataIndex when pair.Value is int[] villager && (path == "villager" && dataIndex == 18 || path == "zombie_villager" && dataIndex == 20):
                         entity.VillagerData = villager;
+                        break;
+                    case 10 when entity.IsLiving && pair.Value is int potionColor:
+                        entity.PotionColor = potionColor;
+                        break;
+                    case 11 when entity.IsLiving && pair.Value is bool potionAmbient:
+                        entity.PotionAmbient = potionAmbient;
+                        break;
+                    case 8 when (path == "arrow" || path == "spectral_arrow" || path == "trident") && pair.Value is byte arrowFlags:
+                        entity.ArrowFlags = arrowFlags;
+                        break;
+                    case 10 when path == "arrow" && pair.Value is int arrowColor:
+                        entity.ArrowColor = arrowColor;
+                        break;
+                    case 16 when path == "ender_dragon" && pair.Value is int phase:
+                        entity.DragonPhase = phase;
+                        break;
+                    case int witherTarget when path == "wither" && witherTarget >= 16 && witherTarget <= 18 && pair.Value is int targetId:
+                        entity.WitherTargets[witherTarget - 16] = targetId;
                         break;
                     case 16 when (path == "guardian" || path == "elder_guardian") && pair.Value is bool moving:
                         entity.Moving = moving;
@@ -1187,8 +1389,8 @@ namespace WhiteFox.Core.Game
                     HorseJump = 0;
                     if (horse.OnGround && power > 0)
                     {
-                        // jump strength attribute (0.4 .. 1.0) is not sent to the client: an average horse
-                        vertical = 0.7 * Math.Min(1, power);
+                        // AbstractHorse.executeRidersJump: the jump strength attribute times the charge
+                        vertical = horse.JumpStrength * Math.Min(1, power);
                         Server?.SendPlayerCommand(5, (int)(Math.Min(1, power) * 100));
                     }
                 }
@@ -1316,6 +1518,17 @@ namespace WhiteFox.Core.Game
         }
 
         /// <summary>Entity Event 47..52: an item of an entity broke (vanilla LivingEntity.breakItem): sound and pieces.</summary>
+        /// <summary>Entity Event 29 / 30: a shield stopped a hit, or an axe disabled it (vanilla LivingEntity.handleEntityEvent).</summary>
+        public void OnShield(int entityId, bool disabled)
+        {
+            Vec3d position;
+            if (Server != null && entityId == Server.EntityId) position = Player.Position;
+            else if (Entities.Get(entityId) is Entity entity) position = entity.Position;
+            else return;
+            var pitch = 0.8f + (float)SoundRandom.NextDouble() * 0.4f;
+            PlaySound(disabled ? "item.shield.break" : "item.shield.block", position, disabled ? 0.8f : 1, pitch, SoundCategory.Player);
+        }
+
         public void OnItemBreak(int entityId, int slot)
         {
             ItemStack stack;
@@ -1345,6 +1558,49 @@ namespace WhiteFox.Core.Game
             if (stack == null) return;
             PlaySound("entity.item.break", position, 0.8f, (float)(0.8 + SoundRandom.NextDouble() * 0.4), SoundCategory.Player);
             SpawnItemParticles(stack, eye, yaw, pitch, 5);
+        }
+
+        /// <summary>
+        /// Flying arrows (vanilla AbstractArrow.tick on the client): critical ones leave a trail of crit particles, tipped
+        /// ones swirl in their potion color.
+        /// </summary>
+        private void TickArrows()
+        {
+            foreach (var entity in Entities.Entities.Values)
+            {
+                var path = entity.Type?.Name.Path;
+                if (path != "arrow" && path != "spectral_arrow" && path != "trident") continue;
+                var motion = entity.Position - entity.PreviousPosition;
+                var moving = motion.X * motion.X + motion.Y * motion.Y + motion.Z * motion.Z > 0.0001;
+                if ((entity.ArrowFlags & 0x01) != 0 && moving)
+                {
+                    for (var i = 0; i < 4; i++)
+                    {
+                        Particle?.Invoke(new ParticleRequest
+                        {
+                            Name = "crit",
+                            Position = entity.PreviousPosition + motion * (i / 4.0),
+                            Offset = new Vec3d(-motion.X, -motion.Y + 0.2, -motion.Z),
+                            Speed = 1,
+                            Count = 0,
+                            Scale = 1,
+                        });
+                    }
+                }
+                if (entity.ArrowColor != -1 && (moving ? Ticks % 2 == 0 : Ticks % 5 == 0))
+                {
+                    var color = entity.ArrowColor;
+                    Particle?.Invoke(new ParticleRequest
+                    {
+                        Name = "entity_effect",
+                        Position = entity.Position + new Vec3d((SoundRandom.NextDouble() - 0.5) * entity.Width, SoundRandom.NextDouble() * entity.Height, (SoundRandom.NextDouble() - 0.5) * entity.Width),
+                        Offset = new Vec3d(((color >> 16) & 0xFF) / 255.0, ((color >> 8) & 0xFF) / 255.0, (color & 0xFF) / 255.0),
+                        Speed = 1,
+                        Count = 0,
+                        Scale = 1,
+                    });
+                }
+            }
         }
 
         /// <summary>Other entities eating or drinking (their hand in use from the entity data).</summary>

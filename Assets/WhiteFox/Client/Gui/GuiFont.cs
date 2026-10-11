@@ -155,6 +155,32 @@ namespace WhiteFox.Client.Gui
         }
 
         /// <summary>The formatting codes still active at the end of a text (to continue them on the next wrapped line).</summary>
+        /// <summary>Word wraps text to a width in pixels; formatting continues on the next line like in vanilla.</summary>
+        public string[] Wrap(string text, float width)
+        {
+            var lines = new List<string>();
+            foreach (var paragraph in (text ?? "").Split('\n'))
+            {
+                var line = "";
+                foreach (var word in paragraph.Split(' '))
+                {
+                    var candidate = line.Length == 0 ? word : line + " " + word;
+                    if (Width(candidate) > width && line.Length > 0)
+                    {
+                        lines.Add(line);
+                        line = word;
+                    }
+                    else
+                    {
+                        line = candidate;
+                    }
+                }
+                lines.Add(line);
+            }
+            for (var i = 1; i < lines.Count; i++) lines[i] = ActiveCodes(lines[i - 1]) + lines[i];
+            return lines.ToArray();
+        }
+
         public static string ActiveCodes(string text)
         {
             string color = "";
@@ -304,8 +330,12 @@ namespace WhiteFox.Client.Gui
         /// Draws text into a pixel buffer (bottom up rows, like Texture2D.SetPixels32) at x, y from the top left, for text
         /// in the world (signs). Colors (§ codes, §#RRGGBB) are applied; glyphs keep their pixel size.
         /// </summary>
-        public void Rasterize(string text, Color32[] target, int width, int height, float x, float y, Color32 color)
+        public void Rasterize(string text, Color32[] target, int width, int height, float x, float y, Color32 color, bool shadow = false)
         {
+            // the alpha of the given color applies to every color; a shadow darkens the § colors to a quarter
+            Color32 Styled(Color value) => shadow
+                ? new Color32((byte)(value.r * 63), (byte)(value.g * 63), (byte)(value.b * 63), color.a)
+                : new Color32((byte)(value.r * 255), (byte)(value.g * 255), (byte)(value.b * 255), color.a);
             var current = color;
             for (var i = 0; i < text.Length; i++)
             {
@@ -313,9 +343,9 @@ namespace WhiteFox.Client.Gui
                 {
                     var length = CodeLength(text, i);
                     var code = char.ToLowerInvariant(text[i + 1]);
-                    if (code == '#' && TryHex(text, i, out var hex)) current = hex;
+                    if (code == '#' && TryHex(text, i, out var hex)) current = Styled(hex);
                     else if (code == 'r') current = color;
-                    else if ("0123456789abcdef".IndexOf(code) >= 0) current = (Color32)FormattingColor(code, color);
+                    else if ("0123456789abcdef".IndexOf(code) >= 0) current = Styled(FormattingColor(code, color));
                     i += length - 1;
                     continue;
                 }

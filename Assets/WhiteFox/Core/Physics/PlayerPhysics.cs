@@ -307,7 +307,7 @@ namespace WhiteFox.Core.Physics
         {
             get
             {
-                var speed = player.MovementSpeed * (1 + 0.2f * player.EffectLevel(Effects.Speed));
+                var speed = player.MovementSpeedFromServer ? player.MovementSpeed : player.MovementSpeed * (1 + 0.2f * player.EffectLevel(Effects.Speed));
                 speed *= Math.Max(0, 1 - 0.15f * player.EffectLevel(Effects.Slowness));
                 return player.Sprinting ? speed * SprintSpeedMultiplier : speed;
             }

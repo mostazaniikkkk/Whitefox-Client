@@ -280,7 +280,12 @@ namespace WhiteFox.Client.Gui
             for (var submesh = 0; submesh < mesh.subMeshCount; submesh++) commands.DrawMesh(mesh, modelMatrix, material, submesh, 0);
             if (fog) commands.EnableShaderKeyword("FOG_LINEAR");
             commands.SetGlobalFloat("_WF_DayLight", day);
+            // the icon texture is sRGB: without sRGB writes (off outside of camera rendering) it would get the linear
+            // values and the icon would show too dark
+            var srgbWrite = GL.sRGBWrite;
+            GL.sRGBWrite = true;
             Graphics.ExecuteCommandBuffer(commands);
+            GL.sRGBWrite = srgbWrite;
             commands.Release();
             UnityEngine.Object.Destroy(mesh);
             owned.Add(target);
@@ -309,6 +314,9 @@ namespace WhiteFox.Client.Gui
             commands.SetGlobalFloat("_WF_DayLight", 1.0f);
             commands.SetGlobalFloat("_WF_ModernEntities", 0);
             commands.SetGlobalFloat("_WF_ItemFrontLight", FrontLight(name) ? 1 : 0);
+            commands.SetGlobalFloat("_WF_IconShading", 1);
+            var rotation = Quaternion.AngleAxis(-gui.rotation.x, Vector3.right) * Quaternion.AngleAxis(gui.rotation.y, Vector3.up) * Quaternion.AngleAxis(gui.rotation.z, Vector3.forward);
+            commands.SetGlobalMatrix("_WF_IconRotation", Matrix4x4.Rotate(Quaternion.Inverse(rotation)));
             commands.SetGlobalFloat("_WF_DynamicLightCount", 0);
             var fog = Shader.IsKeywordEnabled("FOG_LINEAR");
             commands.DisableShaderKeyword("FOG_LINEAR");
@@ -317,7 +325,13 @@ namespace WhiteFox.Client.Gui
             commands.SetGlobalFloat("_WF_DayLight", day);
             commands.SetGlobalFloat("_WF_ModernEntities", modern);
             commands.SetGlobalFloat("_WF_ItemFrontLight", 0);
+            commands.SetGlobalFloat("_WF_IconShading", 0);
+            // the icon texture is sRGB: without sRGB writes (off outside of camera rendering) it would get the linear
+            // values and the icon would show too dark
+            var srgbWrite = GL.sRGBWrite;
+            GL.sRGBWrite = true;
             Graphics.ExecuteCommandBuffer(commands);
+            GL.sRGBWrite = srgbWrite;
             commands.Release();
             owned.Add(target);
             return target;

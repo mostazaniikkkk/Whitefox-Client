@@ -15,6 +15,8 @@ Shader "WhiteFox/BlockLit"
         _NormalStrength ("Normal strength", Range(0, 2)) = 1
         // block items (dropped, held, in frames) set the light where the entity is; chunks keep their vertex light
         _Light ("Light override (block, sky; negative: vertex light)", Vector) = (-1, -1, 0, 0)
+        // clear glass: the see-through texels become a thin pane reflecting the sky and the sun
+        _Glass ("Glass", Float) = 0
         [Enum(UnityEngine.Rendering.BlendMode)] _SrcBlend ("Src blend", Float) = 1
         [Enum(UnityEngine.Rendering.BlendMode)] _DstBlend ("Dst blend", Float) = 0
         [Toggle] _ZWrite ("ZWrite", Float) = 1
@@ -36,7 +38,10 @@ Shader "WhiteFox/BlockLit"
             float _Cutoff;
             float _NormalStrength;
             float4 _Light;
+            float _Glass;
         CBUFFER_END
+
+        float _WF_Wetness; // 0 dry .. 1 soaked (RealisticEnvironment, follows the rain)
 
         struct Attributes
         {
@@ -73,6 +78,7 @@ Shader "WhiteFox/BlockLit"
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
             #include "WhiteFoxCommon.hlsl"
+            #include "WhiteFoxClouds.hlsl"
 
             struct Varyings
             {
@@ -105,7 +111,8 @@ Shader "WhiteFox/BlockLit"
             half4 Frag(Varyings input) : SV_Target
             {
                 half4 texel = SAMPLE_TEXTURE2D_ARRAY(_Textures, sampler_Textures, input.uv.xy, input.uv.z);
-                clip(texel.a - _Cutoff);
+                bool pane = _Glass > 0.5 && texel.a < 0.5;
+                if (!pane) clip(texel.a - _Cutoff);
                 float3 albedo = texel.rgb * input.tintAO.rgb;
 
                 // LabPBR normal: RG = xy (DirectX, green points down), B = AO
@@ -124,6 +131,19 @@ Shader "WhiteFox/BlockLit"
                 float emissionMap = specular.a * 255.0 < 254.5 ? specular.a : 0.0;
 
                 float alpha = texel.a;
+
+                // rain: surfaces open to the sky get wet, the tops most (darker, a smooth water film that mirrors the
+                // sky and flattens the relief), with puddles where the ground is lower in a large scale noise
+                float wet = _WF_Wetness * smoothstep(0.88, 1.0, input.lightEmission.y) * lerp(0.3, 1.0, smoothstep(0.6, 0.95, geometric.y));
+                if (wet > 0.0 && !pane)
+                {
+                    float2 ground = input.positionWS.xz + _WF_OriginOffset.xy;
+                    float puddles = smoothstep(0.55, 0.75, SAMPLE_TEXTURE3D_LOD(_WF_CloudNoise, sampler_WF_CloudNoise, float3(ground.x / 48.0, 0.71, ground.y / 48.0), 0).b) * smoothstep(0.9, 0.99, geometric.y);
+                    albedo *= 1.0 - 0.35 * wet;
+                    smoothness = lerp(smoothness, lerp(0.78, 0.95, puddles), wet);
+                    metallic *= 1.0 - wet;
+                    normal = normalize(lerp(normal, geometric, wet * (0.8 + 0.2 * puddles)));
+                }
                 BRDFData brdf;
                 InitializeBRDFData(albedo, metallic, half3(0, 0, 0), smoothness, alpha, brdf);
 
@@ -140,12 +160,28 @@ Shader "WhiteFox/BlockLit"
                 float3 viewDirection = GetWorldSpaceNormalizeViewDir(input.positionWS);
                 Light mainLight = GetMainLight(TransformWorldToShadowCoord(input.positionWS));
                 float facing = saturate(dot(geometric, mainLight.direction) * 4.0); // no light through the back of a face
-                float3 direct = LightingPhysicallyBased(brdf, mainLight, normal, viewDirection) * sunGate * facing;
+                float3 direct = LightingPhysicallyBased(brdf, mainLight, normal, viewDirection) * sunGate * facing * CloudShadow(input.positionWS, mainLight.direction);
 
                 // light emitting blocks are real point lights (LightSourceManager), not Minecraft's block light levels
                 float3 irradiance = WF_SkyAmbient(normal) * skyVisibility * _WF_AmbientStrength * ao;
                 float3 reflection = WF_SkyColor(reflect(-viewDirection, normal)) * skyVisibility * ao;
                 float fresnel = Pow4(1.0 - saturate(dot(normal, viewDirection)));
+
+                if (pane)
+                {
+                    // a glass pane: Schlick reflectance of glass (F0 0.04), the sky mirrored in it, a sharp highlight of
+                    // the sun or moon, and a faint haze so the pane itself is visible straight on
+                    float cosine = saturate(abs(dot(geometric, viewDirection)));
+                    float paneFresnel = 0.04 + 0.96 * pow(1.0 - cosine, 5.0);
+                    float3 mirrored = WF_SkyColor(reflect(-viewDirection, geometric)) * (0.2 + 0.8 * skyVisibility);
+                    float3 halfway = normalize(mainLight.direction + viewDirection);
+                    float highlight = pow(saturate(dot(geometric, halfway)), 800.0) * 40.0 * sunGate * mainLight.shadowAttenuation;
+                    float3 haze = float3(0.75, 0.88, 0.9) * (irradiance + 0.05);
+                    float paneAlpha = saturate(0.12 + paneFresnel * 0.8 + highlight * 0.02);
+                    float3 paneColor = (mirrored * paneFresnel + haze * 0.12) / paneAlpha + mainLight.color * highlight;
+                    return half4(MixFog(paneColor, input.fog), paneAlpha);
+                }
+
                 float3 color = EnvironmentBRDF(brdf, irradiance, reflection, fresnel) + direct;
 
             #if defined(_ADDITIONAL_LIGHTS)
@@ -181,7 +217,9 @@ Shader "WhiteFox/BlockLit"
             ZWrite On
             ZTest LEqual
             ColorMask 0
-            Cull Back
+            // both sides cast: walls are a single layer of faces, and at the seams where a wall meets the floor the
+            // light leaked through between the front faces alone
+            Cull Off
 
             HLSLPROGRAM
             #pragma target 3.5

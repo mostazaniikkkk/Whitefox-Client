@@ -101,6 +101,97 @@ namespace WhiteFox.Core.Entities
         public int SwingTime = -1;
         public int Age;
 
+        // ---- ender dragon: the yaw and height of the last 64 ticks (vanilla EnderDragon.positions); the neck and tail
+        // segments follow the flight path with them, and the phase (entity data 16)
+        public int DragonPhase;
+        /// <summary>Arrows and tridents: entity data 8 (0x01 critical), the potion color of tipped arrows (-1 none).</summary>
+        public byte ArrowFlags;
+        public int ArrowColor = -1;
+        /// <summary>Living entities: the color of their effects' particles (0 none) and if they are faint (beacons).</summary>
+        public int PotionColor;
+        public bool PotionAmbient;
+        /// <summary>Horses: the jump strength attribute (vanilla 0.4 .. 1.0), the average until the server sends it.</summary>
+        public double JumpStrength = 0.7;
+        private double[] latency;
+        private int latencyPointer = -1;
+
+        /// <summary>Vanilla EnderDragon.getLatencyPos: yaw and y of <paramref name="ticks"/> ticks ago.</summary>
+        public void LatencyPos(int ticks, float partial, out double yaw, out double y)
+        {
+            if (latency == null)
+            {
+                yaw = Yaw;
+                y = Position.Y;
+                return;
+            }
+            var i = (latencyPointer - ticks) & 63;
+            var j = (latencyPointer - ticks - 1) & 63;
+            yaw = latency[i * 2] + MathUtil.WrapDegrees((float)(latency[j * 2] - latency[i * 2])) * partial;
+            y = latency[i * 2 + 1] + (latency[j * 2 + 1] - latency[i * 2 + 1]) * partial;
+        }
+
+        private void RecordLatency()
+        {
+            if (latency == null) latency = new double[128];
+            if (latencyPointer < 0)
+            {
+                for (var i = 0; i < 64; i++)
+                {
+                    latency[i * 2] = Yaw;
+                    latency[i * 2 + 1] = Position.Y;
+                }
+            }
+            latencyPointer = (latencyPointer + 1) & 63;
+            latency[latencyPointer * 2] = Yaw;
+            latency[latencyPointer * 2 + 1] = Position.Y;
+        }
+
+        // ---- wither: the targets of the three heads (entity data 16..18) and where the side heads look
+        public readonly int[] WitherTargets = new int[3];
+        public readonly float[] HeadYaws = new float[2], HeadPitches = new float[2];
+        public readonly float[] PreviousHeadYaws = new float[2], PreviousHeadPitches = new float[2];
+
+        /// <summary>
+        /// Vanilla WitherBoss.aiStep (client part): each side head turns towards its target (at most 10 degrees of yaw
+        /// and 40 of pitch a tick), or back to the body without one.
+        /// </summary>
+        public void TickWitherHeads(Func<int, Vec3d?> eyeOf)
+        {
+            for (var i = 0; i < 2; i++)
+            {
+                PreviousHeadYaws[i] = HeadYaws[i];
+                PreviousHeadPitches[i] = HeadPitches[i];
+                var target = WitherTargets[i + 1] > 0 ? eyeOf(WitherTargets[i + 1]) : null;
+                if (target.HasValue)
+                {
+                    // the side heads sit 1.3 blocks beside the body, 2.2 above the feet
+                    var angle = (BodyYaw + 180 * i) * Math.PI / 180;
+                    var dx = target.Value.X - (Position.X + Math.Cos(angle) * 1.3);
+                    var dy = target.Value.Y - (Position.Y + 2.2);
+                    var dz = target.Value.Z - (Position.Z + Math.Sin(angle) * 1.3);
+                    var horizontal = Math.Sqrt(dx * dx + dz * dz);
+                    var yaw = (float)(Math.Atan2(dz, dx) * 180 / Math.PI) - 90;
+                    var pitch = (float)-(Math.Atan2(dy, horizontal) * 180 / Math.PI);
+                    HeadPitches[i] = RotLerp(HeadPitches[i], pitch, 40);
+                    HeadYaws[i] = RotLerp(HeadYaws[i], yaw, 10);
+                }
+                else
+                {
+                    HeadYaws[i] = RotLerp(HeadYaws[i], BodyYaw, 10);
+                }
+            }
+        }
+
+        private static float RotLerp(float from, float to, float max)
+        {
+            var difference = MathUtil.WrapDegrees(to - from);
+            if (difference > max) difference = max;
+            if (difference < -max) difference = -max;
+            return from + difference;
+        }
+        /// <summary>Block, item and text displays: their transformation and contents.</summary>
+        public DisplayData Display;
+
         public int Vehicle = -1;
         public readonly List<int> Passengers = new List<int>();
 
@@ -192,6 +283,8 @@ namespace WhiteFox.Core.Entities
                 if (difference < -75) BodyYaw = head + 75;
                 if (difference > 75) BodyYaw = head - 75;
             }
+
+            if (Type?.Name.Path == "ender_dragon") RecordLatency();
 
             if (HurtTime > 0) HurtTime--;
             if (Health <= 0 && IsLiving) DeathTime++;
@@ -297,9 +390,23 @@ namespace WhiteFox.Core.Entities
             foreach (var id in new List<int>(Entities.Keys)) Remove(id);
         }
 
+        /// <summary>The own player (not one of <see cref="Entities"/>): its id and eye position, for the wither's heads.</summary>
+        public int OwnId = -1;
+        public Vec3d OwnEyePosition;
+
         public void Tick()
         {
             foreach (var entity in Entities.Values) entity.Tick(world);
+            foreach (var entity in Entities.Values)
+            {
+                if (entity.Type?.Name.Path != "wither") continue;
+                entity.TickWitherHeads(id =>
+                {
+                    if (id == OwnId) return OwnEyePosition;
+                    if (!Entities.TryGetValue(id, out var target)) return null;
+                    return target.Position + new Vec3d(0, target.Height * 0.85, 0);
+                });
+            }
             // passengers are positioned by the client (vanilla Entity.positionRider)
             foreach (var vehicle in Entities.Values)
             {

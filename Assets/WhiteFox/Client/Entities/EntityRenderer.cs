@@ -92,6 +92,11 @@ namespace WhiteFox.Client.Entities
             UpdateLocalEntity(partialTick);
             if (ShowLocalPlayer)
             {
+                if (localView is ModelView own && own.Slim != skins.IsSlim(localEntity.Uuid))
+                {
+                    localView.Destroy();
+                    localView = null;
+                }
                 if (localView == null) localView = CreateView(localEntity);
                 localView.Root.SetActive(true);
                 UpdateView(localView, localEntity, partialTick);
@@ -116,6 +121,10 @@ namespace WhiteFox.Client.Entities
             localEntity.SwingTime = player.SwingTime;
             localEntity.Vehicle = player.Vehicle;
             localEntity.Equipment[0] = session.Inventory.Player.Slots[36 + session.SelectedSlot];
+            localEntity.Equipment[1] = session.Inventory.Player.Slots[45];
+            // the own bow, shield or trident in use, seen in third person
+            localEntity.UsingHand = player.UsingItem ? (player.UsingOffHand ? 2 : 1) : 0;
+            localEntity.UseTicks = player.UsingItem ? localEntity.UseTicks + (localEntity.Age != (int)session.Ticks ? 1 : 0) : 0;
             var slots = session.Inventory.Player.Slots;
             for (var i = 0; i < 4; i++) localEntity.Equipment[5 - i] = slots[5 + i]; // helmet, chestplate, leggings, boots
             // walk animation, normally done by Entity.Tick
@@ -159,6 +168,8 @@ namespace WhiteFox.Client.Entities
             public bool Slim;
             public string HeldName;
             public Transform Held;
+            public string OffHandName;
+            public Transform OffHand;
             /// <summary>Variant the model was built for (texture variants rebuild the view when they change).</summary>
             public int VariantKey;
             public int Variant = -1;
@@ -177,11 +188,14 @@ namespace WhiteFox.Client.Entities
             /// <summary>Object renderers: their model parts and the fishing line.</summary>
             public readonly List<Transform> Pieces = new List<Transform>();
             public LineRenderer Line;
+            /// <summary>Displays: the block state or text version the view was built for.</summary>
+            public int Variant = int.MinValue;
         }
 
-        private static int VariantKey(Entity entity)
+        private int VariantKey(Entity entity)
         {
             var key = entity.Variant;
+            if (entity.IsPlayer) return key * 2 + (skins.IsSlim(entity.Uuid) ? 1 : 0);
             if (entity.VillagerData != null) key = key * 31 + entity.VillagerData[0] * 997 + entity.VillagerData[1] * 31 + entity.VillagerData[2];
             return key;
         }
@@ -192,6 +206,7 @@ namespace WhiteFox.Client.Entities
             var rootObject = new GameObject("Entity " + entity.Id + " " + path);
             rootObject.transform.SetParent(root, false);
 
+            if (path == "block_display" || path == "item_display" || path == "text_display") return new SimpleView { Root = rootObject, Kind = path };
             if (path == "item" || path == "experience_orb" || path == "falling_block")
             {
                 var view = new SimpleView { Root = rootObject, Kind = path };
@@ -480,7 +495,12 @@ namespace WhiteFox.Client.Entities
             }
             commands.SetGlobalFloat("_WF_ModernEntities", modern);
             commands.SetGlobalFloat("_WF_DayLight", day);
+            // the icon texture is sRGB: without sRGB writes (off outside of camera rendering) it would get the linear
+            // values and the icon would show too dark
+            var srgbWrite = GL.sRGBWrite;
+            GL.sRGBWrite = true;
             Graphics.ExecuteCommandBuffer(commands);
+            GL.sRGBWrite = srgbWrite;
             commands.Release();
             return dollTexture;
         }
@@ -598,6 +618,20 @@ namespace WhiteFox.Client.Entities
                     var hand = RotX(-90 * Mathf.Deg2Rad) * RotY(Mathf.PI) * Matrix4x4.Translate(new Vector3(1 / 16f, 0.125f, -0.625f));
                     Apply(view.Held, hand * ItemModels.DisplayMatrix(model, ItemDisplay.ThirdPersonRightHand), true);
                 }
+
+                // the off hand item on the left arm (mirrored like vanilla)
+                var offName = ItemModels.Key(entity.Equipment[1]);
+                if (offName != view.OffHandName && view.Parts.TryGetValue("left_arm", out var leftArms))
+                {
+                    view.OffHandName = offName;
+                    SetItem(leftArms[0].Key, ref view.OffHand, view.Renderers, offName);
+                }
+                var offModel = items.Get(offName?.TrimEnd('*'));
+                if (view.OffHand != null && offModel != null)
+                {
+                    var hand = RotX(-90 * Mathf.Deg2Rad) * RotY(Mathf.PI) * Matrix4x4.Translate(new Vector3(-1 / 16f, 0.125f, -0.625f));
+                    Apply(view.OffHand, hand * ItemModels.DisplayMatrix(offModel, ItemDisplay.ThirdPersonLeftHand), true);
+                }
             }
         }
 
@@ -622,6 +656,98 @@ namespace WhiteFox.Client.Entities
             foreach (var entry in list)
             {
                 if (entry.Key.gameObject.activeSelf != visible) entry.Key.gameObject.SetActive(visible);
+            }
+        }
+
+        /// <summary>
+        /// DragonModel.renderToBuffer: the neck and the tail follow the flight path of the last ticks (the yaw and height
+        /// history of EnderDragon.getLatencyPos): each segment turns by the yaw it had a few ticks ago and is placed at
+        /// the end of the one before, the head at the end of the neck.
+        /// </summary>
+        private static void AnimateDragonSpine(Entity entity, float partial, float flap)
+        {
+            const float rad = Mathf.Deg2Rad;
+            entity.LatencyPos(6, partial, out var spineYaw, out var spineY);
+            entity.LatencyPos(5, partial, out var yaw5, out _);
+            entity.LatencyPos(10, partial, out var yaw10, out _);
+            var turn = MathUtil.WrapDegrees((float)(yaw5 - yaw10));
+            var roll = MathUtil.WrapDegrees((float)(yaw5 + turn / 2));
+            // EnderDragon.getHeadPartYOffset: sitting (and landing / taking off) the neck bends down evenly
+            var sitting = entity.DragonPhase >= 3 && entity.DragonPhase <= 7;
+            float HeadPartYOffset(int part, double partY) => sitting ? part : part == 6 ? 0 : (float)(partY - spineY);
+
+            float x = 0, y = 10, z = -10;
+            for (var i = 0; i < 5; i++)
+            {
+                entity.LatencyPos(5 - i, partial, out var partYaw, out var partY);
+                var xRot = Mathf.Cos(i * 0.45f + flap) * 0.15f + HeadPartYOffset(i, partY) * rad * 1.5f * 5;
+                var yRot = MathUtil.WrapDegrees((float)(partYaw - spineYaw)) * rad * 1.5f;
+                var zRot = -MathUtil.WrapDegrees((float)(partYaw - roll)) * rad * 1.5f;
+                PosePivot["neck" + i] = new Vector3(x, y, z);
+                PoseRotation["neck" + i] = new Vector3(xRot, yRot, zRot);
+                y += Mathf.Sin(xRot) * 10;
+                z -= Mathf.Cos(yRot) * Mathf.Cos(xRot) * 10;
+                x -= Mathf.Sin(yRot) * Mathf.Cos(xRot) * 10;
+            }
+            entity.LatencyPos(0, partial, out var headYaw, out var headY);
+            PosePivot["head"] = new Vector3(x, y, z + 2);
+            PoseRotation["head"] = new Vector3(MathUtil.WrapDegrees(HeadPartYOffset(6, headY)) * rad * 1.5f * 5,
+                MathUtil.WrapDegrees((float)(headYaw - spineYaw)) * rad, -MathUtil.WrapDegrees((float)(headYaw - roll)) * rad);
+
+            // the tail: segments 12..23 ticks back, turned around (the neck model reused backwards)
+            entity.LatencyPos(11, partial, out var tailYaw, out var tailY);
+            float tailX = 0, tailHeight = 10, tailZ = 60, sway = 0;
+            for (var k = 0; k < 12; k++)
+            {
+                entity.LatencyPos(12 + k, partial, out var partYaw, out var partY);
+                sway += Mathf.Sin(k * 0.45f + flap) * 0.05f;
+                var yRot = (MathUtil.WrapDegrees((float)(partYaw - tailYaw)) * 1.5f + 180) * rad;
+                var xRot = sway + (float)(partY - tailY) * rad * 1.5f * 5;
+                var zRot = MathUtil.WrapDegrees((float)(partYaw - roll)) * rad * 1.5f;
+                PosePivot["tail" + k] = new Vector3(tailX, tailHeight, tailZ);
+                // vanilla turns the neck segment around (y + 180 degrees); the tail segments are symmetric boxes, so the
+                // same orientation is the turn without the half turn and the tilt mirrored (Ry(pi) Rx(a) = Rx(-a) Ry(pi))
+                PoseRotation["tail" + k] = new Vector3(-xRot, yRot - Mathf.PI, zRot);
+                tailHeight += Mathf.Sin(xRot) * 10;
+                tailZ -= Mathf.Cos(yRot) * Mathf.Cos(xRot) * 10;
+                tailX -= Mathf.Sin(yRot) * Mathf.Cos(xRot) * 10;
+            }
+        }
+
+        /// <summary>
+        /// HumanoidModel arm poses while an item is used (entity data 8, so everybody sees it): a bow drawn, a crossbow
+        /// being loaded, a shield raised, a trident ready to throw. The main hand is the right one.
+        /// </summary>
+        private static void UseArmPose(Entity entity, float headPitch, float headYaw, float rightArm, float leftArm, float rightArmZ, float leftArmZ)
+        {
+            var mainHand = entity.UsingHand == 1;
+            var item = (mainHand ? entity.Equipment[0] : entity.Equipment[1])?.Item?.Name.Path;
+            var arm = mainHand ? "right_arm" : "left_arm";
+            var other = mainHand ? "left_arm" : "right_arm";
+            var side = mainHand ? 1f : -1f; // mirrored for the left hand
+            switch (item)
+            {
+                case "bow":
+                    // BOW_AND_ARROW: both arms aim along the look, the other one pulls the string
+                    PoseRotation[arm] = new Vector3(-Mathf.PI / 2 + headPitch, -0.1f * side + headYaw, 0);
+                    PoseRotation[other] = new Vector3(-Mathf.PI / 2 + headPitch, (0.1f + 0.4f) * side + headYaw, 0);
+                    break;
+                case "crossbow":
+                {
+                    // CROSSBOW_CHARGE (AnimationUtils.animateCrossbowCharge): the holding arm forward, the other pulling
+                    var charge = Mathf.Clamp01(entity.UseTicks / 25f);
+                    PoseRotation[arm] = new Vector3(-0.97079635f, -0.8f * side, 0);
+                    PoseRotation[other] = new Vector3(Mathf.Lerp(-0.97079635f, -Mathf.PI / 2, charge), Mathf.Lerp(0.4f, 0.85f, charge) * side, 0);
+                    break;
+                }
+                case "shield":
+                    // BLOCK: the shield arm raised across the body
+                    PoseRotation[arm] = new Vector3((mainHand ? rightArm : leftArm) * 0.5f - 0.9424779f, -0.5235988f * side, mainHand ? rightArmZ : leftArmZ);
+                    break;
+                case "trident":
+                    // THROW_SPEAR: the arm raised behind the head
+                    PoseRotation[arm] = new Vector3((mainHand ? rightArm : leftArm) * 0.5f - Mathf.PI, 0, mainHand ? rightArmZ : leftArmZ);
+                    break;
             }
         }
 
@@ -684,6 +810,7 @@ namespace WhiteFox.Client.Entities
                     Rotate("body", 0, bodyY, 0);
                     Rotate("right_arm", rightArm, 0, rightArmZ);
                     Rotate("left_arm", leftArm, 0, leftArmZ);
+                    if (entity.UsingHand != 0 && view.Model.Kind == ModelKind.Biped) UseArmPose(entity, pitch, relativeHead, rightArm, leftArm, rightArmZ, leftArmZ);
                     Rotate("right_leg", rightLeg, legY, 0);
                     Rotate("left_leg", leftLeg, -legY, 0);
                     if (entity.Sneaking && view.Model.Kind == ModelKind.Biped)
@@ -892,8 +1019,13 @@ namespace WhiteFox.Client.Entities
                     PosePivot["tail"] = new Vector3(-2, 6.9f + Cos(ribcage) * 10, -0.5f + Mathf.Sin(ribcage) * 10);
                     Rotate("tail", (0.265f + 0.1f * breath) * Mathf.PI - 0.83f, 0, 0);
                     Rotate("head", pitch, relativeHead, 0);
-                    Rotate("right_head", pitch * 0.5f + Mathf.Sin(age * 0.05f) * 0.2f, relativeHead * 0.5f + Mathf.Sin(age * 0.03f) * 0.4f, 0);
-                    Rotate("left_head", pitch * 0.5f + Mathf.Sin(age * 0.06f + 1) * 0.2f, relativeHead * 0.5f + Mathf.Sin(age * 0.04f + 2) * 0.4f, 0);
+                    // WitherBossModel.setupHeadRotation: the side heads look at their own targets (WitherBoss.aiStep)
+                    for (var i = 0; i < 2; i++)
+                    {
+                        var sideYaw = MathUtil.LerpYaw(entity.PreviousHeadYaws[i], entity.HeadYaws[i], partial);
+                        var sidePitch = Mathf.Lerp(entity.PreviousHeadPitches[i], entity.HeadPitches[i], partial);
+                        Rotate(i == 0 ? "right_head" : "left_head", sidePitch * Mathf.Deg2Rad, MathUtil.WrapDegrees(sideYaw - bodyYaw) * Mathf.Deg2Rad, 0);
+                    }
                     break;
                 }
                 case ModelKind.Dragon:
@@ -915,9 +1047,7 @@ namespace WhiteFox.Client.Entities
                         Rotate(leg, legs, 0, 0);
                         Rotate(leg + "_tip", legs, 0, 0);
                     }
-                    for (var i = 0; i < 5; i++) Rotate("neck" + i, Mathf.Sin(f9 * 0.5f + i * 0.4f) * 0.04f, Mathf.Sin(age * 0.02f + i * 0.3f) * 0.05f, 0);
-                    Rotate("head", Mathf.Sin(f9 * 0.5f + 2) * 0.05f, Mathf.Sin(age * 0.02f + 1.5f) * 0.1f, 0);
-                    for (var i = 0; i < 12; i++) Rotate("tail" + i, Mathf.Sin(f9 * 0.5f + i * 0.45f) * 0.05f, Mathf.Sin(age * 0.03f + i * 0.3f) * 0.06f, 0);
+                    AnimateDragonSpine(entity, partial, f9);
                     break;
                 }
                 case ModelKind.Squid:
@@ -995,6 +1125,11 @@ namespace WhiteFox.Client.Entities
             var path = view.Kind;
             switch (path)
             {
+                case "block_display":
+                case "item_display":
+                case "text_display":
+                    UpdateDisplay(view, entity, position, partial);
+                    break;
                 case "item":
                 {
                     var name = ItemModels.Key(entity.Item);
@@ -1579,8 +1714,10 @@ namespace WhiteFox.Client.Entities
     }
 
     /// <summary>
-    /// Player skins: the default skins of the game chosen from the UUID like vanilla (DefaultPlayerSkin), or the skin
-    /// of the textures property (online mode), downloaded once from textures.minecraft.net.
+    /// Player skins: the skin of the textures property (online mode servers, skin plugins), else the skin of the
+    /// Minecraft account with the player's name (offline mode servers send none: the profile is looked up on Mojang's
+    /// public API, no login needed), else the default skins of the game chosen from the UUID like vanilla
+    /// (DefaultPlayerSkin). Skins are downloaded once from textures.minecraft.net.
     /// </summary>
     public sealed class SkinManager : IDisposable
     {
@@ -1605,7 +1742,66 @@ namespace WhiteFox.Client.Entities
         {
             var info = Info(uuid);
             if (info?.SkinUrl != null) return info.Slim;
+            var profile = AccountSkin(info);
+            if (profile != null) return profile.Slim;
             return DefaultIndex(uuid) < 9;
+        }
+
+        /// <summary>The skin of a Minecraft account, looked up by name; Url null if there is no such account.</summary>
+        private sealed class AccountProfile
+        {
+            public volatile bool Done;
+            public string Url;
+            public bool Slim;
+        }
+
+        // by lower case name, for the whole run (names don't change skins often, and the API has a rate limit)
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, AccountProfile> accounts =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, AccountProfile>();
+
+        /// <summary>The account skin of a player without a textures property, once it is known (null before or without).</summary>
+        private AccountProfile AccountSkin(PlayerInfo info)
+        {
+            var name = info?.Name;
+            if (string.IsNullOrEmpty(name) || name.Length > 16) return null;
+            var key = name.ToLowerInvariant();
+            if (!accounts.TryGetValue(key, out var profile))
+            {
+                profile = new AccountProfile();
+                if (accounts.TryAdd(key, profile)) LookUp(name, profile);
+                else profile = accounts[key];
+            }
+            return profile.Done && profile.Url != null ? profile : null;
+        }
+
+        private async void LookUp(string name, AccountProfile profile)
+        {
+            try
+            {
+                // name -> UUID -> profile with the textures property (base64 JSON with the skin url and model)
+                var lookup = await http.GetAsync("https://api.mojang.com/users/profiles/minecraft/" + Uri.EscapeDataString(name));
+                if (!lookup.IsSuccessStatusCode) return; // 404/204: no account with that name
+                var id = (string)Newtonsoft.Json.Linq.JObject.Parse(await lookup.Content.ReadAsStringAsync())["id"];
+                if (id == null) return;
+                var json = Newtonsoft.Json.Linq.JObject.Parse(await http.GetStringAsync("https://sessionserver.mojang.com/session/minecraft/profile/" + id));
+                foreach (var property in json["properties"] ?? new Newtonsoft.Json.Linq.JArray())
+                {
+                    if ((string)property["name"] != "textures") continue;
+                    var textures = Newtonsoft.Json.Linq.JObject.Parse(System.Text.Encoding.UTF8.GetString(Convert.FromBase64String((string)property["value"])));
+                    var skin = textures["textures"]?["SKIN"];
+                    if (skin == null) continue;
+                    profile.Slim = (string)skin["metadata"]?["model"] == "slim";
+                    profile.Url = (string)skin["url"];
+                }
+            }
+            catch (Exception exception)
+            {
+                Core.Util.Log.Warn("Can not look up the skin of " + name + ": " + exception.Message);
+            }
+            finally
+            {
+                profile.Done = true;
+            }
         }
 
         /// <summary>Java UUID.hashCode, floorMod 18: 9 slim then 9 wide skins (vanilla DefaultPlayerSkin).</summary>
@@ -1621,10 +1817,11 @@ namespace WhiteFox.Client.Entities
         {
             while (finished.TryDequeue(out var result)) Decode(result.Key, result.Value);
             var info = Info(uuid);
-            if (info?.SkinUrl != null)
+            var url = info?.SkinUrl ?? AccountSkin(info)?.Url;
+            if (url != null)
             {
-                if (downloaded.TryGetValue(info.SkinUrl, out var skin) && skin != null) return skin;
-                Download(info.SkinUrl);
+                if (downloaded.TryGetValue(url, out var skin) && skin != null) return skin;
+                Download(url);
             }
             var index = DefaultIndex(uuid);
             var path = "assets/minecraft/textures/entity/player/" + (index < 9 ? "slim/" : "wide/") + DefaultNames[index % 9] + ".png";

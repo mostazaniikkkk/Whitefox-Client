@@ -27,11 +27,11 @@ namespace WhiteFox.Core.Network
         /// <summary>
         /// Server list ping (Minosoft's StatusSession): handshake with next state 1, status request, ping/pong.
         /// </summary>
-        public static async Task<ServerStatus> PingAsync(string host, int port, int timeoutMilliseconds = 7000)
+        public static async Task<ServerStatus> PingAsync(string host, int port, int timeoutMilliseconds = 7000, Uri webSocket = null)
         {
             using (var connection = new NetworkConnection())
             {
-                await connection.ConnectAsync(host, port, timeoutMilliseconds).ConfigureAwait(false);
+                await connection.ConnectAsync(host, port, timeoutMilliseconds, webSocket).ConfigureAwait(false);
                 var result = new TaskCompletionSource<ServerStatus>();
                 ServerStatus status = null;
                 var watch = new Stopwatch();
