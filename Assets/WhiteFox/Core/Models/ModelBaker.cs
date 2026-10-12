@@ -101,6 +101,7 @@ namespace WhiteFox.Core.Models
                 for (var i = 0; i < 6; i++) full &= state.OpaqueSide[i];
                 state.FullOpaque = full && !state.Block.Transparent;
 
+                if (state.OutlineShape.Length == 0) state.OutlineShape = BlockOutlines.Get(state) ?? state.OutlineShape;
                 if (state.OutlineShape.Length == 0 && model.Quads.Length > 0)
                 {
                     state.OutlineShape = new[] { new AABB(Clamp01(minX), Clamp01(minY), Clamp01(minZ), Clamp01(maxX), Clamp01(maxY), Clamp01(maxZ)) };

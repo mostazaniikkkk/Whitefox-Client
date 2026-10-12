@@ -140,9 +140,75 @@ namespace WhiteFox.Client.Gui
             for (var i = 0; i < 9; i++) Slot(window, first + 27 + i, panel, x + i * 18, y + 58);
         }
 
+        // creative: the item search or the survival inventory tab (vanilla CreativeModeInventoryScreen)
+        private bool creativeInventoryTab = CommandLine.Has("-wf-creativeinv"); // test flag: open on that tab
+
+        /// <summary>
+        /// The two creative tabs at the right end of the top row (search, a compass) and of the bottom row (the survival
+        /// inventory, a chest). Clicking one switches; the click is used so it does not reach the slots.
+        /// </summary>
+        private void CreativeTabs(Rect panel, bool front)
+        {
+            var search = new Rect(panel.x + 169, panel.y - 28, 26, 32);
+            var inventoryTab = new Rect(panel.x + 169, panel.y + 132, 26, 32);
+            if (!front)
+            {
+                // the unselected tab is drawn behind the window
+                if (creativeInventoryTab) gui.Sprite("container/creative_inventory/tab_top_unselected_7", search);
+                else gui.Sprite("container/creative_inventory/tab_bottom_unselected_7", inventoryTab);
+                return;
+            }
+            if (creativeInventoryTab) gui.Sprite("container/creative_inventory/tab_bottom_selected_7", inventoryTab);
+            else gui.Sprite("container/creative_inventory/tab_top_selected_7", search);
+            DrawItem(CatalogItem("compass"), 1, new Rect(search.x + 5, search.y + 9, 16, 16));
+            DrawItem(CatalogItem("chest"), 1, new Rect(inventoryTab.x + 5, inventoryTab.y + 7, 16, 16));
+            var current = Event.current;
+            if (current.type != EventType.MouseDown || current.button != 0) return;
+            if (search.Contains(gui.Mouse) && creativeInventoryTab || inventoryTab.Contains(gui.Mouse) && !creativeInventoryTab)
+            {
+                creativeInventoryTab = !creativeInventoryTab;
+                current.Use();
+            }
+        }
+
+        private Item CatalogItem(string path) => catalog.Find(item => item.Name.Path == path);
+
+        /// <summary>The survival inventory tab of the creative screen: armor, off hand, the whole inventory and the bin.</summary>
+        private Rect DrawCreativeInventory(GameSession session)
+        {
+            search.Focused = false;
+            var panel = Centered(195, 136);
+            CreativeTabs(panel, false);
+            Region(Container + "creative_inventory/tab_inventory.png", new Rect(0, 0, 195, 136), panel);
+            var window = session.Inventory.Player;
+            var dollRect = new Rect(panel.x + 73, panel.y + 6, 32, 43);
+            if (DollRenderer != null && gui.Repaint)
+            {
+                var doll = DollRenderer(Mathf.RoundToInt(32 * gui.Scale), Mathf.RoundToInt(43 * gui.Scale), gui.Mouse - new Vector2(dollRect.center.x, dollRect.y + 13));
+                if (doll != null) GUI.DrawTexture(dollRect, doll);
+            }
+            for (var i = 0; i < 4; i++) Slot(window, 5 + i, panel, 54 + i / 2 * 54, 6 + i % 2 * 27);
+            Slot(window, 45, panel, 35, 20);
+            for (var i = 0; i < 27; i++) Slot(window, 9 + i, panel, 9 + i % 9 * 18, 54 + i / 9 * 18);
+            for (var i = 0; i < 9; i++) Slot(window, 36 + i, panel, 9 + i * 18, 112);
+            // the bin: an item put there is gone
+            var bin = new Rect(panel.x + 173, panel.y + 112, 16, 16);
+            Hover(bin);
+            var current = Event.current;
+            if (current.type == EventType.MouseDown && bin.Contains(gui.Mouse) && session.Inventory.Carried != null)
+            {
+                session.Inventory.Carried = null;
+                current.Use();
+            }
+            CreativeTabs(panel, true);
+            return panel;
+        }
+
         private Rect DrawCreative(GameSession session)
         {
+            if (creativeInventoryTab) return DrawCreativeInventory(session);
             var panel = Centered(195, 136);
+            CreativeTabs(panel, false);
             Region(Container + "creative_inventory/tab_item_search.png", new Rect(0, 0, 195, 136), panel);
 
             if (search.Text != lastSearch)
@@ -187,6 +253,7 @@ namespace WhiteFox.Client.Gui
             var window = session.Inventory.Player;
             for (var i = 0; i < 9; i++) Slot(window, 36 + i, panel, 9 + i * 18, 112);
             gui.Text("Search", panel.x + 8, panel.y + 6, new Color32(0x40, 0x40, 0x40, 0xFF), false);
+            CreativeTabs(panel, true);
             return panel;
         }
 

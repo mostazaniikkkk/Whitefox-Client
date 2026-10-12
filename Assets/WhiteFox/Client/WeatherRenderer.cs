@@ -105,7 +105,7 @@ namespace WhiteFox.Client
             {
                 var x = (int)Math.Floor(player.Position.X) + random.Next(21) - 10;
                 var z = (int)Math.Floor(player.Position.Z) + random.Next(21) - 10;
-                var top = world.GetChunk(x >> 4, z >> 4)?.GetHeight(x & 15, z & 15) ?? world.MinY;
+                var top = world.GetChunk(x >> 4, z >> 4)?.GetRainHeight(x & 15, z & 15) ?? world.MinY;
                 if (top > cameraY + 10 || top < cameraY - 10) continue;
                 var biome = world.GetBiome(x, top, z);
                 if (!biome.HasPrecipitation || biome.Snows(top)) continue;
@@ -119,7 +119,7 @@ namespace WhiteFox.Client
             if (soundAt.HasValue && rainSoundCooldown-- <= 0)
             {
                 rainSoundCooldown = random.Next(3);
-                var above = soundAt.Value.Y > player.EyePosition.Y + 1 && world.GetChunk((int)Math.Floor(player.Position.X) >> 4, (int)Math.Floor(player.Position.Z) >> 4)?.GetHeight((int)Math.Floor(player.Position.X) & 15, (int)Math.Floor(player.Position.Z) & 15) > player.EyePosition.Y;
+                var above = soundAt.Value.Y > player.EyePosition.Y + 1 && world.GetChunk((int)Math.Floor(player.Position.X) >> 4, (int)Math.Floor(player.Position.Z) >> 4)?.GetRainHeight((int)Math.Floor(player.Position.X) & 15, (int)Math.Floor(player.Position.Z) & 15) > player.EyePosition.Y;
                 if (above) session.PlaySound("weather.rain.above", soundAt, 0.1f, 0.5f, SoundCategory.Weather);
                 else session.PlaySound("weather.rain", soundAt, 0.2f, 1.0f, SoundCategory.Weather);
             }
@@ -157,7 +157,7 @@ namespace WhiteFox.Client
                     float dx = x + 0.5f - (float)cx, dz = z + 0.5f - (float)cz;
                     var distance = dx * dx + dz * dz;
                     if (distance > Radius * Radius) continue;
-                    var height = world.GetChunk(x >> 4, z >> 4)?.GetHeight(x & 15, z & 15) ?? world.MinY;
+                    var height = world.GetChunk(x >> 4, z >> 4)?.GetRainHeight(x & 15, z & 15) ?? world.MinY;
                     var bottom = Math.Max(by - Radius, height);
                     var top = Math.Max(by + Radius, height);
                     if (bottom >= top) continue;

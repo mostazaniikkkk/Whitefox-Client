@@ -1,6 +1,7 @@
 // WhiteFox - Unity port of Minosoft (https://gitlab.bixilon.de/bixilon/minosoft), Copyright (C) 2020-2023 Moritz Zwerger
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using System;
 using WhiteFox.Core.Data;
 using WhiteFox.Core.Util;
 
@@ -55,6 +56,12 @@ namespace WhiteFox.Core.Worlds
         /// <summary>Per column: the lowest y from which upwards every block lets sky light pass unchanged (opacity 0).</summary>
         public readonly int[] Heightmap = new int[256];
 
+        /// <summary>
+        /// Per column: one above the highest block that stops rain (vanilla MOTION_BLOCKING: a collision shape or a
+        /// fluid), so slabs, glass or leaves keep the rain out although sky light passes them.
+        /// </summary>
+        public readonly int[] RainHeightmap = new int[256];
+
         /// <summary>Biome ids per quart (4x4x4): section index * 64 + (y &lt;&lt; 4 | z &lt;&lt; 2 | x), or null (local world).</summary>
         public ushort[] Biomes;
 
@@ -63,7 +70,7 @@ namespace WhiteFox.Core.Worlds
             World = world;
             Position = position;
             Sections = new ChunkSection[world.SectionCount];
-            for (var i = 0; i < Heightmap.Length; i++) Heightmap[i] = world.MinY;
+            for (var i = 0; i < Heightmap.Length; i++) Heightmap[i] = RainHeightmap[i] = world.MinY;
         }
 
         public ChunkSection GetSection(int sectionY)
@@ -96,6 +103,9 @@ namespace WhiteFox.Core.Worlds
 
         public int GetHeight(int x, int z) => Heightmap[(z << 4) | x];
 
+        /// <summary>The lowest y rain falls down to in this column (see <see cref="RainHeightmap"/>).</summary>
+        public int GetRainHeight(int x, int z) => RainHeightmap[(z << 4) | x];
+
         public void RecalculateHeightmap()
         {
             for (var z = 0; z < 16; z++)
@@ -111,6 +121,7 @@ namespace WhiteFox.Core.Worlds
         public bool RecalculateHeightmap(int x, int z)
         {
             var height = World.MinY;
+            var rain = World.MinY;
             for (var s = Sections.Length - 1; s >= 0 && height == World.MinY; s--)
             {
                 var section = Sections[s];
@@ -119,7 +130,9 @@ namespace WhiteFox.Core.Worlds
                 for (var y = 15; y >= 0; y--)
                 {
                     var state = section.Get(SectionIndex.Of(x, y, z));
-                    if (state != null && state.Opacity > 0)
+                    if (state == null) continue;
+                    if (rain == World.MinY && (state.HasCollision || state.Block.IsFluid || state["waterlogged"] == "true")) rain = baseY + y + 1;
+                    if (state.Opacity > 0)
                     {
                         height = baseY + y + 1;
                         break;
@@ -127,6 +140,7 @@ namespace WhiteFox.Core.Worlds
                 }
             }
             var index = (z << 4) | x;
+            RainHeightmap[index] = Math.Max(rain, height);
             if (Heightmap[index] == height) return false;
             Heightmap[index] = height;
             return true;

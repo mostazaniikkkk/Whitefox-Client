@@ -728,6 +728,17 @@ namespace WhiteFox.Core.Game
                 usingTicks++;
                 var usedStack = Player.UsingOffHand ? Inventory.Player.Slots[45] : heldStack;
                 if (usedStack != null) ItemUseEffects(usedStack, usingTicks, Player.EyePosition, Player.Yaw, Player.Pitch, Player.Position);
+                // vanilla LivingEntity.completeUsingItem: food and drinks are done after their use duration (the
+                // server eats them then); still holding the button eats the next one once the right click delay passed
+                var duration = UseDuration(usedStack);
+                if (duration > 0 && usingTicks >= duration)
+                {
+                    if (Resources.ItemProperties.IsFood(usedStack.Item)) SpawnItemParticles(usedStack, Player.EyePosition, Player.Yaw, Player.Pitch, 16);
+                    usingItem = false;
+                    Player.UsingItem = false;
+                    useCooldown = 4;
+                    return;
+                }
                 if (Input.UseHeld && usedStack != null) return;
                 Riptide(heldStack, usingTicks);
                 usingItem = false;
@@ -788,6 +799,17 @@ namespace WhiteFox.Core.Game
                 Player.UsingItem = true;
                 Player.UsingOffHand = false;
             }
+        }
+
+        /// <summary>Vanilla getUseDuration of the items that finish by themselves (0: used until released).</summary>
+        private int UseDuration(ItemStack stack)
+        {
+            var path = stack?.Item?.Name.Path;
+            if (path == null) return 0;
+            if (path == "honey_bottle") return 40;
+            if (path == "potion" || path == "milk_bucket") return 32;
+            if (Resources.ItemProperties.IsFood(stack.Item)) return path == "dried_kelp" ? 16 : 32;
+            return 0;
         }
 
         /// <summary>Blocks a right click opens or switches (the off hand does not place a block against them).</summary>
@@ -1499,7 +1521,7 @@ namespace WhiteFox.Core.Game
             var level = ItemProperties.EnchantmentLevel(trident, "minecraft:riptide");
             if (level <= 0) return;
             var position = BlockPos.Floor(Player.Position);
-            var height = World.GetChunk(position.ChunkPos)?.GetHeight(position.X & 15, position.Z & 15) ?? World.MinY;
+            var height = World.GetChunk(position.ChunkPos)?.GetRainHeight(position.X & 15, position.Z & 15) ?? World.MinY;
             var rain = World.RainLevel > 0.2f && height <= position.Y + 1;
             if (!Player.InWater && !rain) return;
             var yaw = Player.Yaw * MathUtil.DegToRad;
